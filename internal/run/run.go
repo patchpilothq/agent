@@ -263,6 +263,9 @@ func (p *parser) line(line string) bool {
 			}
 			p.finished.Failed = append(p.finished.Failed, Failure{Package: f[2], Output: strings.Join(out, "\n")})
 		}
+	case "broken":
+		// apt's dependencies are broken after a failure; the step stopped.
+		p.all = append(p.all, "apt's dependencies are broken after this failure; PatchPilot stopped the run rather than remove a package. Mend it on the server, for example with: sudo apt --fix-broken install")
 	case "stopped":
 		p.finished.Result = "stopped"
 	case "done":

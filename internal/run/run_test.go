@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -214,6 +215,22 @@ func TestAStepThatNeverStartsFailsTheRun(t *testing.T) {
 	r.save(state{RunID: "r5", Mode: "upgrade", RequestedAt: time.Now().Add(-4 * time.Minute)})
 	r.Resume()
 	if f := s.finished(t); f.Result != "failed" || f.Output != "The update step did not start." {
+		t.Fatalf("got %+v", f)
+	}
+}
+
+func TestABrokenStateEndsTheRunWithWhatToDo(t *testing.T) {
+	s := &sink{}
+	r, _ := runner(t, s)
+	r.Handle(map[string]any{"type": "run", "run_id": "r6", "mode": "upgrade"})
+	writeStep(t, r.OutputPath, "upgrade",
+		"PATCHPILOT package 1 5 curl",
+		"E: dpkg: error processing archive curl",
+		"PATCHPILOT failed curl 100",
+		"PATCHPILOT broken",
+		"PATCHPILOT done 1")
+	f := s.finished(t)
+	if f.Result != "failed" || len(f.Failed) != 1 || !strings.Contains(f.Output, "apt --fix-broken install") {
 		t.Fatalf("got %+v", f)
 	}
 }

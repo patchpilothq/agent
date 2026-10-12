@@ -177,6 +177,15 @@ for package in $(cat "$tmp/packages"); do
 	if [ "$status" != 0 ]; then
 		echo "PATCHPILOT failed $package $status"
 		result=1
+		# A failed package can leave dpkg half done: finish configuring what
+		# was unpacked. If apt's dependencies are still broken, every further
+		# package would fail too, and mending them can mean removing one,
+		# which is the machine owner's to decide: stop here and say so.
+		dpkg --configure -a --force-confdef --force-confold
+		if ! apt-get check >/dev/null 2>&1; then
+			echo "PATCHPILOT broken"
+			break
+		fi
 	fi
 done
 

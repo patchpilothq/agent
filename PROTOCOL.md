@@ -167,5 +167,11 @@ PATCHPILOT start refresh 2026-10-12T03:00:00Z
 PATCHPILOT wait dpkg-lock
 PATCHPILOT package 3 12 openssl
 PATCHPILOT failed openssl 100
-PATCHPILOT done 0
+PATCHPILOT broken
+PATCHPILOT done 1
 ```
+
+After a failed package the step finishes configuring what dpkg unpacked
+(`dpkg --configure -a`); when apt's dependencies are still broken, it stops
+with `broken` instead of failing every further package, because mending them
+can mean removing a package.

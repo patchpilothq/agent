@@ -72,8 +72,8 @@ including this file.
   every fleet.
 - **(MUST)** Keep the update step — the script and the two units in
   `install/install.sh` — reading nothing from the agent but which of the
-  three request names exist, and running `apt-get` only with options fixed
-  in the script. It runs as root, and the agent can only start it. A change
+  request names exist, and running only `apt-get` and `dpkg` with options
+  fixed in the script. It runs as root, and the agent can only start it. A change
   to it reaches a machine only when its owner reinstalls, so it changes
   rarely and only on purpose.
 
