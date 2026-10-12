@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/patchpilothq/agent/internal/step"
 )
 
 func runArgs(args ...string) (int, string, string) {
@@ -62,5 +65,21 @@ func TestEnrollWantsATokenOnStandardInput(t *testing.T) {
 	code := run(context.Background(), []string{"enroll", "--config", conf, "--credential", filepath.Join(dir, "c")}, strings.NewReader("\n"), &stdout, &stderr)
 	if code != 2 || !strings.Contains(stderr.String(), "no token") {
 		t.Fatalf("exit %d, stderr %q", code, stderr.String())
+	}
+}
+
+func TestTheListsAreRefreshedAtOnceAndAfterSixHours(t *testing.T) {
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		checked time.Time
+		due     bool
+	}{
+		{time.Time{}, true},
+		{now.Add(-time.Hour), false},
+		{now.Add(-6*time.Hour - time.Minute), true},
+	} {
+		if got := refreshDue(step.Lists{CheckedAt: c.checked}, now); got != c.due {
+			t.Errorf("checked %v: due %v, want %v", c.checked, got, c.due)
+		}
 	}
 }

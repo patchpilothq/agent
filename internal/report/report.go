@@ -11,6 +11,7 @@ import (
 
 	"github.com/patchpilothq/agent/internal/apt"
 	"github.com/patchpilothq/agent/internal/packages"
+	"github.com/patchpilothq/agent/internal/step"
 	"github.com/patchpilothq/agent/internal/system"
 )
 
@@ -23,7 +24,10 @@ type Report struct {
 	Held          []string           `json:"held"`
 	Reboot        packages.Reboot    `json:"reboot"`
 	LastUpgradeAt *time.Time         `json:"last_upgrade_at"`
-	Pro           *Pro               `json:"pro,omitempty"`
+	// The package lists, as the update step last refreshed them.
+	ListsRefreshedAt *time.Time `json:"lists_refreshed_at"`
+	ListsError       string     `json:"lists_error,omitempty"`
+	Pro              *Pro       `json:"pro,omitempty"`
 }
 
 // Pro says whether Ubuntu Pro is attached; sent on Ubuntu only.
@@ -76,6 +80,8 @@ func Collect(ctx context.Context, s Sources) (Report, error) {
 		return r, err
 	}
 	r.LastUpgradeAt = packages.LastUpgrade(s.Root + "/var/log/dpkg.log")
+	lists := step.ReadLists(s.Root + step.RunsDir)
+	r.ListsRefreshedAt, r.ListsError = lists.RefreshedAt, lists.Error
 	if r.System.OSID == "ubuntu" && s.ProStatus != nil {
 		r.Pro = &Pro{}
 		// No Pro client, or one that cannot answer, is reported as not attached.

@@ -144,6 +144,22 @@ apt_get() {
 echo "PATCHPILOT start $mode $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 apt_get update
 result=$?
+
+# What the agent reports about the package lists: when a refresh last
+# succeeded, and what apt said when the latest one did not. apt-get update
+# exits 0 even when an index could not be fetched, so an Err: line fails it
+# too.
+if [ "$result" = 0 ] && ! grep -q '^Err:' "$tmp/out"; then
+	rm -f "$runs/lists-error"
+	date -u +%Y-%m-%dT%H:%M:%SZ >"$runs/lists-refreshed"
+	chgrp patchpilot "$runs/lists-refreshed"
+	chmod 0640 "$runs/lists-refreshed"
+else
+	grep -e '^E:' -e '^W:' "$tmp/out" | head -n 10 >"$runs/lists-error"
+	[ -s "$runs/lists-error" ] || echo "E: apt-get update exited with $result" >"$runs/lists-error"
+	chgrp patchpilot "$runs/lists-error"
+	chmod 0640 "$runs/lists-error"
+fi
 if [ "$mode" = refresh ]; then
 	echo "PATCHPILOT done $result"
 	exit 0

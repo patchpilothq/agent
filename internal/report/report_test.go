@@ -36,6 +36,10 @@ func fakeApt(_ context.Context, args ...string) ([]byte, error) {
 
 func TestAReportCarriesExactlyThePublishedFields(t *testing.T) {
 	root := machine(t, "ID=ubuntu\nVERSION_ID=\"24.04\"\nVERSION_CODENAME=noble\nPRETTY_NAME=\"Ubuntu 24.04.1 LTS\"\n")
+	runs := filepath.Join(root, "var/lib/patchpilot-update/runs")
+	os.MkdirAll(runs, 0o755)
+	os.WriteFile(filepath.Join(runs, "lists-refreshed"), []byte("2026-10-12T03:00:41Z\n"), 0o640)
+	os.WriteFile(filepath.Join(runs, "lists-error"), []byte("E: The repository 'http://deb.debian.org/debian bullseye-backports Release' does not have a Release file.\n"), 0o640)
 	r, err := Collect(context.Background(), Sources{
 		Root: root, Apt: fakeApt,
 		ProStatus: func(context.Context) ([]byte, error) {
@@ -52,10 +56,13 @@ func TestAReportCarriesExactlyThePublishedFields(t *testing.T) {
 	for k := range fields {
 		keys = append(keys, k)
 	}
-	want := "held last_upgrade_at packages pro reboot system type updates"
+	want := "held last_upgrade_at lists_error lists_refreshed_at packages pro reboot system type updates"
 	sort.Strings(keys)
 	if got := strings.Join(keys, " "); got != want {
 		t.Fatalf("fields %q, want %q (PROTOCOL.md)", got, want)
+	}
+	if r.ListsRefreshedAt == nil || !strings.HasPrefix(r.ListsError, "E: The repository") {
+		t.Fatalf("lists: %v %q", r.ListsRefreshedAt, r.ListsError)
 	}
 	if r.Pro == nil || !r.Pro.Attached || r.System.OSID != "ubuntu" || len(r.Updates) != 2 || !r.Updates[0].Security {
 		t.Fatalf("got %+v", r)

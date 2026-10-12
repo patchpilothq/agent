@@ -120,7 +120,7 @@ func serve(ctx context.Context, server, credentialPath, requestsDir string, logg
 
 	runner := &runs.Runner{
 		RequestsDir: requestsDir,
-		OutputPath:  "/var/lib/patchpilot-update/runs/output",
+		OutputPath:  filepath.Join(step.RunsDir, "output"),
 		StatePath:   filepath.Join(filepath.Dir(credentialPath), "run.json"),
 		Log:         logger,
 		Context:     ctx,
@@ -193,26 +193,28 @@ func selfUpdate(ctx context.Context, server, want string) error {
 	return u.Update(ctx, want)
 }
 
-// refreshLists asks the update step to refresh the package lists whenever
-// they are older than six hours, so that pending updates are current even on
-// a machine that does not refresh them itself.
+// refreshLists asks the update step to refresh the package lists at once
+// when it never has, and whenever its latest refresh is six hours old, so
+// that pending updates are current — a cloud image comes without lists —
+// and the report says when they were refreshed (PROTOCOL.md).
 func refreshLists(ctx context.Context, requestsDir string, logger *log.Logger) {
-	const maxAge = 6 * time.Hour
-	timer := time.NewTimer(time.Minute)
-	defer timer.Stop()
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-		if info, err := os.Stat("/var/lib/apt/lists"); err == nil && time.Since(info.ModTime()) > maxAge {
+		if refreshDue(step.ReadLists(step.RunsDir), time.Now()) {
 			if err := step.Request(requestsDir, step.Refresh); err != nil {
 				logger.Print(err)
 			}
 		}
-		timer.Reset(30 * time.Minute)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Minute):
+		}
 	}
+}
+
+// refreshDue says whether the package lists need a refresh.
+func refreshDue(lists step.Lists, now time.Time) bool {
+	return lists.CheckedAt.IsZero() || now.Sub(lists.CheckedAt) > 6*time.Hour
 }
 
 // fingerprint changes when anything a report is read from may have changed.
@@ -224,6 +226,8 @@ func fingerprint() string {
 		"/var/lib/apt/extended_states",
 		"/var/run/reboot-required",
 		"/var/log/apt/history.log",
+		filepath.Join(step.RunsDir, "lists-refreshed"),
+		filepath.Join(step.RunsDir, "lists-error"),
 	} {
 		if info, err := os.Stat(path); err == nil {
 			fmt.Fprintf(&b, "%s %d %d;", path, info.ModTime().UnixNano(), info.Size())

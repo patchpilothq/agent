@@ -79,6 +79,7 @@ whole state, never a difference.
  "held": ["linux-image-amd64"],
  "reboot": {"required": true, "packages": ["linux-image-6.1.0-26-amd64"]},
  "last_upgrade_at": "2026-10-11T03:12:40Z",
+ "lists_refreshed_at": "2026-10-12T03:00:41Z",
  "pro": {"attached": false}}
 ```
 
@@ -99,6 +100,12 @@ whole state, never a difference.
 - `last_upgrade_at` — the last `upgrade` in dpkg's log (`/var/log/dpkg.log`
   and its rotations), if any; apt's history log is not readable by the
   agent's user everywhere.
+- `lists_refreshed_at` — when the update step last refreshed the package
+  lists without an error (`null` until it has); `updates` is only as recent
+  as this.
+- `lists_error` — what apt said when the update step's latest refresh
+  failed: its `E:` and `W:` lines, at most ten. Left out when that refresh
+  succeeded.
 - `pro` — whether Ubuntu Pro is attached, on Ubuntu only.
 
 That list is everything the agent reads. It reads no file contents beyond
@@ -168,8 +175,13 @@ The agent asks for a step by creating an empty file in
 
 The step reads nothing but which of those three names exist, removes them,
 and writes its output to `/var/lib/patchpilot-update/runs/output`, which
-only root can write and the agent can read. Its own lines start with
-`PATCHPILOT `:
+only root can write and the agent can read. Every mode refreshes the lists
+first, and records the outcome beside it: `lists-refreshed` holds the time
+of the latest refresh without an error, `lists-error` apt's lines from the
+latest failed one, removed again by the next success. apt-get exits 0 when
+an index could not be fetched, so an `Err:` line in its output counts as a
+failure. The agent asks for a refresh when it starts and whenever the
+latest one is six hours old. Its own lines start with `PATCHPILOT `:
 
 ```
 PATCHPILOT start refresh 2026-10-12T03:00:00Z
