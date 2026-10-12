@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/patchpilothq/agent/internal/apt"
@@ -51,7 +52,8 @@ func Collect(ctx context.Context, s Sources) (Report, error) {
 	if r.System, err = system.Read(system.Paths{Root: s.Root}); err != nil {
 		return r, err
 	}
-	if r.Packages, r.Held, err = packages.Installed(s.Root + "/var/lib/dpkg/status"); err != nil {
+	var sources map[string]string
+	if r.Packages, r.Held, sources, err = packages.Installed(s.Root + "/var/lib/dpkg/status"); err != nil {
 		return r, err
 	}
 	if r.Held == nil {
@@ -59,6 +61,16 @@ func Collect(ctx context.Context, s Sources) (Report, error) {
 	}
 	if r.Updates, err = apt.Pending(ctx, s.Apt); err != nil {
 		return r, err
+	}
+	// The source package names the update for security data, which is
+	// published per source package (PROTOCOL.md).
+	for i, u := range r.Updates {
+		name, _, _ := strings.Cut(u.Name, ":")
+		if source, ok := sources[name]; ok {
+			r.Updates[i].Source = source
+		} else {
+			r.Updates[i].Source = name
+		}
 	}
 	if r.Reboot, err = packages.RebootRequired(s.Root + "/var/run/reboot-required"); err != nil {
 		return r, err

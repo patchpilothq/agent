@@ -19,17 +19,19 @@ import (
 type Package [3]string
 
 // Installed reads dpkg's status file: every package whose status is
-// "install ok installed", and the names of those put on hold.
-func Installed(statusPath string) (installed []Package, held []string, err error) {
+// "install ok installed", the names of those put on hold, and the source
+// package each one was built from where it differs from its own name.
+func Installed(statusPath string) (installed []Package, held []string, sources map[string]string, err error) {
 	f, err := os.Open(statusPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("reading dpkg status: %w", err)
+		return nil, nil, nil, fmt.Errorf("reading dpkg status: %w", err)
 	}
 	defer f.Close()
+	sources = map[string]string{}
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	var name, version, arch, status string
+	var name, version, arch, status, source string
 	flush := func() {
 		fields := strings.Fields(status)
 		if name != "" && len(fields) == 3 && fields[2] == "installed" {
@@ -37,8 +39,11 @@ func Installed(statusPath string) (installed []Package, held []string, err error
 			if fields[0] == "hold" {
 				held = append(held, name)
 			}
+			if source != "" && source != name {
+				sources[name] = source
+			}
 		}
-		name, version, arch, status = "", "", "", ""
+		name, version, arch, status, source = "", "", "", "", ""
 	}
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -60,11 +65,15 @@ func Installed(statusPath string) (installed []Package, held []string, err error
 			arch = value
 		case "Status":
 			status = value
+		case "Source":
+			// "glibc" or "glibc (2.36-9)": the version, when given, is the
+			// source's own and not needed here.
+			source = strings.Fields(value)[0]
 		}
 	}
 	flush()
 	if err := scanner.Err(); err != nil {
-		return nil, nil, fmt.Errorf("reading dpkg status: %w", err)
+		return nil, nil, nil, fmt.Errorf("reading dpkg status: %w", err)
 	}
 	sort.Slice(installed, func(i, j int) bool {
 		if installed[i][0] != installed[j][0] {
@@ -73,7 +82,7 @@ func Installed(statusPath string) (installed []Package, held []string, err error
 		return installed[i][2] < installed[j][2]
 	})
 	sort.Strings(held)
-	return installed, held, nil
+	return installed, held, sources, nil
 }
 
 // Reboot is the "reboot" object of a report.

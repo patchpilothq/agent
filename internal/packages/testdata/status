@@ -1,5 +1,6 @@
 Package: openssl
 Status: install ok installed
+Source: openssl
 Priority: optional
 Architecture: amd64
 Version: 3.0.14-1~deb12u1
@@ -10,6 +11,7 @@ Description: Secure Sockets Layer toolkit
 
 Package: linux-image-amd64
 Status: hold ok installed
+Source: linux-signed-amd64 (6.1.106+3)
 Architecture: amd64
 Version: 6.1.106-3
 
@@ -20,6 +22,7 @@ Version: 1.0
 
 Package: libc6
 Status: install ok installed
+Source: glibc
 Architecture: i386
 Version: 2.36-9+deb12u7
 

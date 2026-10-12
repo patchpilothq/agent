@@ -9,7 +9,7 @@ import (
 )
 
 func TestInstalledReadsDpkgStatus(t *testing.T) {
-	installed, held, err := Installed("testdata/status")
+	installed, held, sources, err := Installed("testdata/status")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,6 +24,9 @@ func TestInstalledReadsDpkgStatus(t *testing.T) {
 	}
 	if !reflect.DeepEqual(held, []string{"linux-image-amd64"}) {
 		t.Fatalf("held %v", held)
+	}
+	if !reflect.DeepEqual(sources, map[string]string{"libc6": "glibc", "linux-image-amd64": "linux-signed-amd64"}) {
+		t.Fatalf("sources %v", sources)
 	}
 }
 

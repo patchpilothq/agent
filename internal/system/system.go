@@ -22,6 +22,7 @@ type Info struct {
 	OSVersionID   string `json:"os_version_id"`
 	OSCodename    string `json:"os_codename"`
 	OSName        string `json:"os_name"`
+	OSVariant     string `json:"os_variant,omitempty"`
 	Arch          string `json:"arch"`
 	Kernel        string `json:"kernel"`
 	MachineIDHash string `json:"machine_id_hash"`
@@ -62,6 +63,11 @@ func Read(p Paths) (Info, error) {
 		info.OSCodename = release["UBUNTU_CODENAME"]
 	}
 	info.OSName = release["PRETTY_NAME"]
+	// Raspberry Pi OS's 64-bit edition calls itself Debian in os-release;
+	// the file its image builder leaves tells it apart.
+	if _, err := os.Stat(p.Root + "/etc/rpi-issue"); err == nil {
+		info.OSVariant = "raspios"
+	}
 
 	if info.MachineIDHash, err = MachineIDHash(p.Root); err != nil {
 		return info, err

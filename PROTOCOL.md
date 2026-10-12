@@ -67,12 +67,13 @@ whole state, never a difference.
  "system": {
    "hostname": "web-1",
    "os_id": "debian", "os_version_id": "12", "os_codename": "bookworm",
-   "os_name": "Debian GNU/Linux 12 (bookworm)",
+   "os_name": "Debian GNU/Linux 12 (bookworm)", "os_variant": "raspios",
    "arch": "amd64", "kernel": "6.1.0-25-amd64",
    "machine_id_hash": "…"},
  "packages": [["openssl", "3.0.14-1~deb12u1", "amd64"], …],
  "updates": [
-   {"name": "openssl", "from": "3.0.14-1~deb12u1", "to": "3.0.15-1~deb12u1",
+   {"name": "libssl3", "source": "openssl",
+    "from": "3.0.14-1~deb12u1", "to": "3.0.15-1~deb12u1",
     "origins": ["Debian-Security:12/stable-security"],
     "security": true, "held_back": false}],
  "held": ["linux-image-amd64"],
@@ -81,12 +82,18 @@ whole state, never a difference.
  "pro": {"attached": false}}
 ```
 
+- `system` — from `/proc/sys/kernel`, `/etc/os-release`, `/etc/machine-id`
+  (hashed) and `dpkg --print-architecture`; `os_variant` is `raspios` when
+  `/etc/rpi-issue` exists, because Raspberry Pi OS's 64-bit edition calls
+  itself Debian, and is left out otherwise.
 - `packages` — every installed package: name, version, architecture
   (dpkg's status file).
 - `updates` — what an upgrade would install, from `apt-get -s dist-upgrade`
-  run without root: `origins` are apt's, `security` is true when one of them
-  is a security archive, and `held_back` when a plain upgrade would not
-  install it (it needs a removal or a new package, or it is phased).
+  run without root: `source` is the source package it was built from
+  (dpkg's status file), under which security data is published; `origins`
+  are apt's, `security` is true when one of them is a security archive, and
+  `held_back` when a plain upgrade would not install it (it needs a removal
+  or a new package, or it is phased, or it is on hold).
 - `held` — packages put on hold (`apt-mark showhold`).
 - `reboot` — `/var/run/reboot-required` and the packages it names.
 - `last_upgrade_at` — the last `Upgrade:` in apt's history log, if any.

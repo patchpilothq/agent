@@ -16,6 +16,7 @@ import (
 // Update is one entry of a report's "updates" (PROTOCOL.md).
 type Update struct {
 	Name     string   `json:"name"`
+	Source   string   `json:"source,omitempty"`
 	From     string   `json:"from"`
 	To       string   `json:"to"`
 	Origins  []string `json:"origins"`

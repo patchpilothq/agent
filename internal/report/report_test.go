@@ -26,12 +26,12 @@ func machine(t *testing.T, osRelease string) string {
 	write("etc/machine-id", "0123456789abcdef0123456789abcdef\n")
 	write("dpkg-architecture", "amd64\n")
 	write("etc/os-release", osRelease)
-	write("var/lib/dpkg/status", "Package: openssl\nStatus: install ok installed\nArchitecture: amd64\nVersion: 3.0.13\n")
+	write("var/lib/dpkg/status", "Package: openssl\nStatus: install ok installed\nArchitecture: amd64\nVersion: 3.0.13\n\nPackage: libssl3\nStatus: install ok installed\nSource: openssl\nArchitecture: amd64\nVersion: 3.0.13\n")
 	return root
 }
 
 func fakeApt(_ context.Context, args ...string) ([]byte, error) {
-	return []byte("Inst openssl [3.0.13] (3.0.14 Ubuntu:24.04/noble-security [amd64])\n"), nil
+	return []byte("Inst openssl [3.0.13] (3.0.14 Ubuntu:24.04/noble-security [amd64])\nInst libssl3 [3.0.13] (3.0.14 Ubuntu:24.04/noble-security [amd64])\n"), nil
 }
 
 func TestAReportCarriesExactlyThePublishedFields(t *testing.T) {
@@ -57,8 +57,13 @@ func TestAReportCarriesExactlyThePublishedFields(t *testing.T) {
 	if got := strings.Join(keys, " "); got != want {
 		t.Fatalf("fields %q, want %q (PROTOCOL.md)", got, want)
 	}
-	if r.Pro == nil || !r.Pro.Attached || r.System.OSID != "ubuntu" || len(r.Updates) != 1 || !r.Updates[0].Security {
+	if r.Pro == nil || !r.Pro.Attached || r.System.OSID != "ubuntu" || len(r.Updates) != 2 || !r.Updates[0].Security {
 		t.Fatalf("got %+v", r)
+	}
+	for _, u := range r.Updates {
+		if u.Source != "openssl" {
+			t.Fatalf("%s: source %q, want openssl", u.Name, u.Source)
+		}
 	}
 	if strings.Contains(string(b), "account") {
 		t.Fatal("the Pro status leaked more than whether it is attached")

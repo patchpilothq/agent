@@ -4,6 +4,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -46,5 +48,29 @@ func TestUbuntuNamesItsCodenameAsWell(t *testing.T) {
 	}
 	if values["ID"] != "ubuntu" || values["VERSION_ID"] != "18.04" || values["UBUNTU_CODENAME"] != "bionic" {
 		t.Fatalf("got %v", values)
+	}
+}
+
+func TestRaspberryPiOSIsToldApartFromDebian(t *testing.T) {
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"/proc/sys/kernel/hostname":  "pi-flur\n",
+		"/proc/sys/kernel/osrelease": "6.6.51+rpt-rpi-v8\n",
+		"/etc/machine-id":            "00000000000000000000000000000001\n",
+		"/dpkg-architecture":         "arm64\n",
+		"/etc/os-release":            "ID=debian\nVERSION_ID=\"12\"\nVERSION_CODENAME=bookworm\n",
+		"/etc/rpi-issue":             "Raspberry Pi reference 2024-11-19\n",
+	} {
+		os.MkdirAll(filepath.Dir(root+path), 0o755)
+		os.WriteFile(root+path, []byte(content), 0o644)
+	}
+	info, err := Read(Paths{Root: root})
+	if err != nil || info.OSID != "debian" || info.OSVariant != "raspios" {
+		t.Fatalf("got %+v, %v", info, err)
+	}
+
+	plain, _ := Read(Paths{Root: "testdata/debian"})
+	if plain.OSVariant != "" {
+		t.Fatalf("plain Debian got variant %q", plain.OSVariant)
 	}
 }
