@@ -16,12 +16,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/patchpilothq/agent/internal/client"
 	"github.com/patchpilothq/agent/internal/report"
 	runs "github.com/patchpilothq/agent/internal/run"
+	"github.com/patchpilothq/agent/internal/selfupdate"
 	"github.com/patchpilothq/agent/internal/step"
 	"github.com/patchpilothq/agent/internal/system"
 )
@@ -110,6 +112,12 @@ func serve(ctx context.Context, server, credentialPath, requestsDir string, logg
 	}
 	go refreshLists(ctx, requestsDir, logger)
 
+	// An update to a newer signed release ends the agent; systemd starts the
+	// new binary (PROTOCOL.md, "update_agent").
+	ctx, restart := context.WithCancel(ctx)
+	defer restart()
+	var updated atomic.Bool
+
 	runner := &runs.Runner{
 		RequestsDir: requestsDir,
 		OutputPath:  "/var/lib/patchpilot-update/runs/output",
@@ -124,12 +132,33 @@ func serve(ctx context.Context, server, credentialPath, requestsDir string, logg
 		Collect:     func(ctx context.Context) (any, error) { return report.Collect(ctx, report.Machine()) },
 		Fingerprint: fingerprint,
 		Log:         logger,
-		OnMessage:   func(_ context.Context, msg map[string]any) { runner.Handle(msg) },
-		OnConnect:   func(context.Context) { runner.Resume() },
+		OnMessage: func(_ context.Context, msg map[string]any) {
+			if msg["type"] == "update_agent" {
+				version, _ := msg["version"].(string)
+				go func() {
+					if runner.Active() {
+						logger.Printf("not updating to %s during a run; the server asks again later", version)
+						return
+					}
+					if err := selfUpdate(ctx, server, version); err != nil {
+						logger.Printf("not updating to %s: %v", version, err)
+						return
+					}
+					logger.Printf("updated to %s; restarting", version)
+					updated.Store(true)
+					restart()
+				}()
+				return
+			}
+			runner.Handle(msg)
+		},
+		OnConnect: func(context.Context) { runner.Resume() },
 	}
 	runner.Send = session.Send
 	err = session.Run(ctx)
 	switch {
+	case updated.Load():
+		return 0
 	case errors.Is(err, client.ErrRemoved):
 		logger.Print("this server was removed from PatchPilot; stopping. Reinstall to connect it again.")
 		return exitRemoved
@@ -139,6 +168,29 @@ func serve(ctx context.Context, server, credentialPath, requestsDir string, logg
 		logger.Print(err)
 		return 1
 	}
+}
+
+// selfUpdate replaces the agent's own binary with the signed release
+// version from the server.
+func selfUpdate(ctx context.Context, server, want string) error {
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if self, err = filepath.EvalSymlinks(self); err != nil {
+		return err
+	}
+	info, err := system.Read(system.Paths{})
+	if err != nil {
+		return err
+	}
+	u := &selfupdate.Updater{
+		Base:    server + "/agent/download",
+		Target:  self,
+		Binary:  "patchpilot-agent-linux-" + info.Arch,
+		Current: version,
+	}
+	return u.Update(ctx, want)
 }
 
 // refreshLists asks the update step to refresh the package lists whenever

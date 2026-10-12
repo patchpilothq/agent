@@ -116,6 +116,15 @@ asks the update step for that mode and nothing else.
 `stop` — `{"type": "stop", "run_id": "<uuid>"}`: finish the package in
 progress and install no further one (a maintenance window closing).
 
+`update_agent` — `{"type": "update_agent", "version": "0.2.0"}`: a newer
+release exists. The agent downloads it from `<server>/agent/download/` —
+`SHA256SUMS`, `SHA256SUMS.sig`, `VERSION` and its binary — and replaces its
+own binary only when the signature over `SHA256SUMS` verifies against a
+public key compiled into it (`internal/selfupdate`), the version is the one
+announced and newer than its own, every file matches its sum, and the new
+binary runs. Then it exits, and systemd starts the new one. Never during a
+run, and never the update step: that changes only with a reinstall.
+
 ### Runs, from the agent
 
 While a run goes on, the agent follows the update step's output and sends:

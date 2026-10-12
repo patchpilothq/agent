@@ -75,6 +75,13 @@ type state struct {
 	Finished    *Finished `json:"finished,omitempty"`
 }
 
+// Active reports whether a run is going on.
+func (r *Runner) Active() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.active
+}
+
 // Handle takes the server's "run" and "stop" messages.
 func (r *Runner) Handle(msg map[string]any) {
 	id, _ := msg["run_id"].(string)

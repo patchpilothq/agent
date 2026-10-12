@@ -5,9 +5,12 @@
 export GO111MODULE := on
 
 VERSION ?= dev
-GOFLAGS_BUILD := -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION)"
+# DEV_PUBLIC_KEY adds a development release key to a development build;
+# release builds never set it (internal/selfupdate).
+DEV_PUBLIC_KEY ?=
+GOFLAGS_BUILD := -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION) -X github.com/patchpilothq/agent/internal/selfupdate.devKey=$(DEV_PUBLIC_KEY)"
 
-.PHONY: precommit inventory build clean
+.PHONY: precommit inventory build release clean
 
 precommit:
 	@unformatted="$$(gofmt -l .)"; if [ -n "$$unformatted" ]; then echo "not gofmt-formatted:"; echo "$$unformatted"; exit 1; fi
@@ -29,6 +32,10 @@ build:
 	cp install/install.sh install/uninstall.sh dist/
 	printf '%s\n' "$(VERSION)" >dist/VERSION
 	cd dist && $$(command -v sha256sum || echo shasum -a 256) patchpilot-agent-linux-* install.sh uninstall.sh VERSION >SHA256SUMS
+
+# A release: the build, signed. PATCHPILOT_SIGNING_KEY in the environment.
+release: build
+	go run ./tools/release sign -dir dist
 
 clean:
 	rm -rf dist
