@@ -5,5 +5,4 @@ module's licence file. Do not edit by hand.
 
 | Module | Version | Licence |
 | --- | --- | --- |
-
-The agent has no dependencies beyond the Go standard library.
+| github.com/coder/websocket | v1.8.15 | ISC |

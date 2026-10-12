@@ -1,8 +1,11 @@
 # Agent working rules (`agent/`)
 
-These rules cover the PatchPilot agent: a Go program that runs as root on a
-customer's Debian or Ubuntu server. Repository-wide rules — how to work,
-plan and ADR duties, commit and staging discipline — live in the root
+These rules cover the PatchPilot agent: a Go program that runs on a
+customer's Debian or Ubuntu server as its own unprivileged user, in a
+systemd sandbox, and the install script that sets it up together with the
+one part that runs as root, the update step (`PROTOCOL.md`).
+Repository-wide rules — how to work, plan and ADR duties, commit and
+staging discipline — live in the root
 `AGENTS.md` of the PatchPilot repository; the architectural rules they
 specialise live in its `docs/ARCHITECTURE_PRINCIPLES.md`. Its
 `docs/ARCHITECTURE.md` §"Agent" describes this unit — read it before making
@@ -40,8 +43,8 @@ including this file.
 ## Dependencies
 
 - **(MUST)** Add a dependency only when the standard library cannot do the
-  job. Every dependency runs as root on every customer server, and every
-  customer who audits the agent has to read it.
+  job. Every dependency runs on every customer server, and every customer
+  who audits the agent has to read it.
 - **(MUST)** Regenerate `DEPENDENCIES.md` with `make inventory` whenever
   `go.mod` changes. `inventory_test.go` fails while it is stale, and when a
   dependency's licence is not compatible with the agent's GPL v3.
@@ -59,6 +62,20 @@ including this file.
   machine's configuration, or send anything beyond the server's package and
   system state. Each of these is published as something the agent does not
   do.
+
+## Root
+
+- **(MUST NOT)** Run anything of the agent as root, or read anything it
+  reports with root's rights. Every reading works as the agent's own user,
+  and the unit tests read from fixture files. That the agent has no root is
+  published, and it is what keeps a compromised release from being root on
+  every fleet.
+- **(MUST)** Keep the update step — the script and the two units in
+  `install/install.sh` — reading nothing from the agent but which of the
+  three request names exist, and running `apt-get` only with options fixed
+  in the script. It runs as root, and the agent can only start it. A change
+  to it reaches a machine only when its owner reinstalls, so it changes
+  rarely and only on purpose.
 
 ## Coding rules
 

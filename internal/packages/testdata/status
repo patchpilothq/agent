@@ -1,0 +1,29 @@
+Package: openssl
+Status: install ok installed
+Priority: optional
+Architecture: amd64
+Version: 3.0.14-1~deb12u1
+Description: Secure Sockets Layer toolkit
+ This package contains the openssl binary.
+ .
+ A continuation line that says Package: not-a-package
+
+Package: linux-image-amd64
+Status: hold ok installed
+Architecture: amd64
+Version: 6.1.106-3
+
+Package: removed-but-configured
+Status: deinstall ok config-files
+Architecture: amd64
+Version: 1.0
+
+Package: libc6
+Status: install ok installed
+Architecture: i386
+Version: 2.36-9+deb12u7
+
+Package: libc6
+Status: install ok installed
+Architecture: amd64
+Version: 2.36-9+deb12u7

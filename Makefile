@@ -18,12 +18,17 @@ precommit:
 inventory:
 	go test -run TestInventoryMatchesTheModuleGraph -update-inventory .
 
-# Static binaries for every architecture the agent supports. armhf is built
-# for ARMv6 so it also runs on the oldest 32-bit Raspberry Pis.
+# A release in dist/: static binaries for every architecture the agent
+# supports — armhf for ARMv6, so it also runs on the oldest 32-bit Raspberry
+# Pis — the install scripts, and SHA256SUMS over all of them.
 build:
+	rm -rf dist
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GOFLAGS_BUILD) -o dist/patchpilot-agent-linux-amd64 .
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GOFLAGS_BUILD) -o dist/patchpilot-agent-linux-arm64 .
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build $(GOFLAGS_BUILD) -o dist/patchpilot-agent-linux-armhf .
+	cp install/install.sh install/uninstall.sh dist/
+	printf '%s\n' "$(VERSION)" >dist/VERSION
+	cd dist && $$(command -v sha256sum || echo shasum -a 256) patchpilot-agent-linux-* install.sh uninstall.sh VERSION >SHA256SUMS
 
 clean:
 	rm -rf dist

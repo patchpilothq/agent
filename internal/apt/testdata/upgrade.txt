@@ -1,0 +1,10 @@
+NOTE: This is only a simulation!
+Reading package lists...
+The following packages have been kept back:
+  linux-image-amd64
+The following packages will be upgraded:
+  libc6 openssl
+2 upgraded, 0 newly installed, 0 to remove and 1 not upgraded.
+Inst libc6 [2.36-9+deb12u7] (2.36-9+deb12u8 Debian:12.7/stable [amd64])
+Inst openssl [3.0.14-1~deb12u1] (3.0.15-1~deb12u1 Debian:12.7/stable, Debian-Security:12/stable-security [amd64])
+Conf libc6 (2.36-9+deb12u8 Debian:12.7/stable [amd64])

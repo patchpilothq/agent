@@ -68,6 +68,7 @@ func TestLicenceOfRecognisesTheAllowedLicences(t *testing.T) {
 		"GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007":                         "GPL-3.0",
 		"Permission is hereby granted, free of charge, to any person":                 "MIT",
 		"Permission to use, copy, modify, and/or distribute this software":            "ISC",
+		"Permission to use, copy, modify, and distribute this software for any":       "ISC",
 		"Redistribution and use in source and binary forms ... Neither the name of X": "BSD-3-Clause",
 		"Redistribution and use in source and binary forms, with or without":          "BSD-2-Clause",
 		"GNU AFFERO GENERAL PUBLIC LICENSE":                                           "unknown",
@@ -144,7 +145,10 @@ func licenceOf(dir string) string {
 			return "GPL-3.0"
 		case strings.Contains(s, "Permission is hereby granted, free of charge"):
 			return "MIT"
-		case strings.Contains(s, "Permission to use, copy, modify, and/or distribute"):
+		// Both wordings of the ISC licence: OSI's, and OpenBSD's older one
+		// without "/or".
+		case strings.Contains(s, "Permission to use, copy, modify, and/or distribute"),
+			strings.Contains(s, "Permission to use, copy, modify, and distribute this software for any"):
 			return "ISC"
 		case strings.Contains(s, "Redistribution and use in source and binary forms"):
 			if strings.Contains(s, "Neither the name") {
