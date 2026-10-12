@@ -14,12 +14,14 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/patchpilothq/agent/internal/client"
 	"github.com/patchpilothq/agent/internal/report"
+	runs "github.com/patchpilothq/agent/internal/run"
 	"github.com/patchpilothq/agent/internal/step"
 	"github.com/patchpilothq/agent/internal/system"
 )
@@ -108,6 +110,13 @@ func serve(ctx context.Context, server, credentialPath, requestsDir string, logg
 	}
 	go refreshLists(ctx, requestsDir, logger)
 
+	runner := &runs.Runner{
+		RequestsDir: requestsDir,
+		OutputPath:  "/var/lib/patchpilot-update/runs/output",
+		StatePath:   filepath.Join(filepath.Dir(credentialPath), "run.json"),
+		Log:         logger,
+		Context:     ctx,
+	}
 	session := &client.Session{
 		Server:      server,
 		Credential:  cred,
@@ -115,7 +124,10 @@ func serve(ctx context.Context, server, credentialPath, requestsDir string, logg
 		Collect:     func(ctx context.Context) (any, error) { return report.Collect(ctx, report.Machine()) },
 		Fingerprint: fingerprint,
 		Log:         logger,
+		OnMessage:   func(_ context.Context, msg map[string]any) { runner.Handle(msg) },
+		OnConnect:   func(context.Context) { runner.Resume() },
 	}
+	runner.Send = session.Send
 	err = session.Run(ctx)
 	switch {
 	case errors.Is(err, client.ErrRemoved):

@@ -75,9 +75,7 @@ func Collect(ctx context.Context, s Sources) (Report, error) {
 	if r.Reboot, err = packages.RebootRequired(s.Root + "/var/run/reboot-required"); err != nil {
 		return r, err
 	}
-	if r.LastUpgradeAt, err = packages.LastUpgrade(s.Root + "/var/log/apt/history.log"); err != nil {
-		return r, err
-	}
+	r.LastUpgradeAt = packages.LastUpgrade(s.Root + "/var/log/dpkg.log")
 	if r.System.OSID == "ubuntu" && s.ProStatus != nil {
 		r.Pro = &Pro{}
 		// No Pro client, or one that cannot answer, is reported as not attached.

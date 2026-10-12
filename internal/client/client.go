@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -115,11 +116,44 @@ type Session struct {
 	Collect     func(ctx context.Context) (any, error)
 	Fingerprint func() string
 	Log         *log.Logger
+	// OnMessage gets every message from the server but "welcome";
+	// OnConnect runs after each hello. Both may be nil.
+	OnMessage func(ctx context.Context, msg map[string]any)
+	OnConnect func(ctx context.Context)
 
 	// Zero values take the defaults below; tests shorten them.
 	CheckEvery   time.Duration // how often the fingerprint is compared
 	CollectEvery time.Duration // a full report at least this often
 	PingEvery    time.Duration
+
+	mu   sync.Mutex
+	conn *websocket.Conn
+}
+
+// ErrNotConnected is what Send answers while there is no connection.
+var ErrNotConnected = errors.New("not connected to PatchPilot")
+
+// Send writes a message on the current connection, from any goroutine.
+func (s *Session) Send(msg any) error {
+	s.mu.Lock()
+	conn := s.conn
+	s.mu.Unlock()
+	if conn == nil {
+		return ErrNotConnected
+	}
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return conn.Write(ctx, websocket.MessageText, b)
+}
+
+func (s *Session) setConn(conn *websocket.Conn) {
+	s.mu.Lock()
+	s.conn = conn
+	s.mu.Unlock()
 }
 
 func (s *Session) defaults() {
@@ -172,6 +206,8 @@ func (s *Session) once(ctx context.Context) error {
 	}
 	defer conn.CloseNow()
 	conn.SetReadLimit(1 << 20)
+	s.setConn(conn)
+	defer s.setConn(nil)
 
 	readErr := make(chan error, 1)
 	go func() { readErr <- s.read(ctx, conn) }()
@@ -204,6 +240,9 @@ func (s *Session) once(ctx context.Context) error {
 		return err
 	}
 	s.Log.Printf("connected to %s", s.Server)
+	if s.OnConnect != nil {
+		s.OnConnect(ctx)
+	}
 
 	fingerprint := s.Fingerprint()
 	lastCollect := time.Now()
@@ -243,16 +282,17 @@ func (s *Session) read(ctx context.Context, conn *websocket.Conn) error {
 		if err != nil {
 			return err
 		}
-		var msg struct {
-			Type     string `json:"type"`
-			ServerID string `json:"server_id"`
-		}
+		var msg map[string]any
 		if json.Unmarshal(b, &msg) != nil {
 			continue
 		}
-		switch msg.Type {
+		switch msg["type"] {
 		case "welcome":
-			s.Log.Printf("the server knows this machine as %s", msg.ServerID)
+			s.Log.Printf("the server knows this machine as %v", msg["server_id"])
+		default:
+			if s.OnMessage != nil {
+				s.OnMessage(ctx, msg)
+			}
 		}
 	}
 }

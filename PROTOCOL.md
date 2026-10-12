@@ -96,7 +96,9 @@ whole state, never a difference.
   or a new package, or it is phased, or it is on hold).
 - `held` — packages put on hold (`apt-mark showhold`).
 - `reboot` — `/var/run/reboot-required` and the packages it names.
-- `last_upgrade_at` — the last `Upgrade:` in apt's history log, if any.
+- `last_upgrade_at` — the last `upgrade` in dpkg's log (`/var/log/dpkg.log`
+  and its rotations), if any; apt's history log is not readable by the
+  agent's user everywhere.
 - `pro` — whether Ubuntu Pro is attached, on Ubuntu only.
 
 That list is everything the agent reads. It reads no file contents beyond
@@ -106,8 +108,39 @@ these, no databases, no environment.
 
 `welcome` — after `hello`: `{"type": "welcome", "server_id": "<uuid>"}`.
 
-Later protocol versions add the run and the agent's own update; until then
-the server sends nothing else.
+`run` — install the pending updates now:
+`{"type": "run", "run_id": "<uuid>", "mode": "upgrade"}`, where `mode` is
+`upgrade` (security updates first, then the rest) or `security`. The agent
+asks the update step for that mode and nothing else.
+
+`stop` — `{"type": "stop", "run_id": "<uuid>"}`: finish the package in
+progress and install no further one (a maintenance window closing).
+
+### Runs, from the agent
+
+While a run goes on, the agent follows the update step's output and sends:
+
+```json
+{"type": "run_progress", "run_id": "…", "state": "installing",
+ "done": 2, "total": 12, "package": "openssl"}
+```
+
+`state` is `refreshing` (the package lists), `waiting` (another apt, such as
+`unattended-upgrades`, holds dpkg's lock) or `installing`. At the end:
+
+```json
+{"type": "run_finished", "run_id": "…", "result": "failed",
+ "installed": ["openssl", "tzdata"],
+ "failed": [{"package": "libc6", "output": "<apt's last lines for it>"}],
+ "output": "<the step's last lines>"}
+```
+
+`result` is `succeeded`, `failed` or `stopped`. A run goes on when the
+connection drops, and when the agent restarts; its result is kept in
+`/var/lib/patchpilot/run.json` until it was sent, on the next connection if
+need be. What an upgrade would not install — held packages, phased
+updates, updates that need a removal — is left alone, and the report after
+the run lists it as `held_back`.
 
 ## The update step
 

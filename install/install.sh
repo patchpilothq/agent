@@ -113,9 +113,11 @@ done
 rm -f "$requests/upgrade" "$requests/security" "$requests/refresh" "$requests/stop"
 [ -n "$mode" ] || exit 0
 
-umask 027
+# Only the output file gets its own mode; apt runs with the machine's umask,
+# so that a log or directory it creates is as it would be without us.
 : >"$runs/output"
 chgrp patchpilot "$runs/output"
+chmod 0640 "$runs/output"
 exec >>"$runs/output" 2>&1
 
 tmp=$(mktemp -d)

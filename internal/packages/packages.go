@@ -102,11 +102,10 @@ func RebootRequired(flagPath string) (Reboot, error) {
 	}
 	reboot.Required = true
 
+	// Which packages asked for it is extra; a list it cannot read is empty.
 	b, err := os.ReadFile(flagPath + ".pkgs")
-	if os.IsNotExist(err) {
+	if err != nil {
 		return reboot, nil
-	} else if err != nil {
-		return reboot, fmt.Errorf("reading %s.pkgs: %w", flagPath, err)
 	}
 	seen := map[string]bool{}
 	for _, line := range strings.Split(string(b), "\n") {
@@ -119,28 +118,23 @@ func RebootRequired(flagPath string) (Reboot, error) {
 	return reboot, nil
 }
 
-// LastUpgrade is the start of the newest apt run in the history log that
-// upgraded something, or nil. The current log is read first, then the
-// rotated ones, newest first.
-func LastUpgrade(historyPath string) (*time.Time, error) {
-	for _, path := range []string{historyPath, historyPath + ".1", historyPath + ".1.gz", historyPath + ".2.gz"} {
-		at, err := lastUpgradeIn(path)
-		if err != nil {
-			return nil, err
-		}
-		if at != nil {
-			return at, nil
+// LastUpgrade is when a package was last upgraded, from dpkg's log — which
+// every user can read, unlike apt's history — or nil. The current log is
+// read first, then the rotated ones, newest first. A log it cannot read
+// counts as none: when the last upgrade was is optional in a report.
+func LastUpgrade(logPath string) *time.Time {
+	for _, path := range []string{logPath, logPath + ".1", logPath + ".2.gz", logPath + ".3.gz"} {
+		if at := lastUpgradeIn(path); at != nil {
+			return at
 		}
 	}
-	return nil, nil
+	return nil
 }
 
-func lastUpgradeIn(path string) (*time.Time, error) {
+func lastUpgradeIn(path string) *time.Time {
 	f, err := os.Open(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	} else if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
+	if err != nil {
+		return nil
 	}
 	defer f.Close()
 
@@ -148,31 +142,26 @@ func lastUpgradeIn(path string) (*time.Time, error) {
 	if strings.HasSuffix(path, ".gz") {
 		gz, err := gzip.NewReader(f)
 		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", path, err)
+			return nil
 		}
 		defer gz.Close()
 		r = gz
 	}
 
-	var start string
+	// 2026-10-12 13:25:31 upgrade openssl:arm64 3.0.15-1~deb12u1 3.0.17-1~deb12u1
 	var last *time.Time
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 1024*1024), 4*1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		line := scanner.Text()
-		switch {
-		case strings.HasPrefix(line, "Start-Date:"):
-			start = strings.TrimSpace(strings.TrimPrefix(line, "Start-Date:"))
-		case strings.HasPrefix(line, "Upgrade:") && start != "":
-			// apt writes local time without a zone.
-			if at, err := time.ParseInLocation("2006-01-02  15:04:05", start, time.Local); err == nil {
-				utc := at.UTC()
-				last = &utc
-			}
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 3 || fields[2] != "upgrade" {
+			continue
+		}
+		// dpkg writes local time without a zone.
+		if at, err := time.ParseInLocation("2006-01-02 15:04:05", fields[0]+" "+fields[1], time.Local); err == nil {
+			utc := at.UTC()
+			last = &utc
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("reading %s: %w", path, err)
-	}
-	return last, nil
+	return last
 }

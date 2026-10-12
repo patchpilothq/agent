@@ -45,29 +45,34 @@ func TestRebootRequiredReadsTheFlagAndItsPackages(t *testing.T) {
 	}
 }
 
-func TestLastUpgradeIsTheNewestRunThatUpgraded(t *testing.T) {
-	at, err := LastUpgrade("testdata/history.log")
-	if err != nil || at == nil {
-		t.Fatalf("got %v, %v", at, err)
-	}
+func TestLastUpgradeIsTheNewestUpgradeInDpkgsLog(t *testing.T) {
+	at := LastUpgrade("testdata/dpkg.log")
 	want := time.Date(2026, 10, 11, 3, 12, 40, 0, time.Local).UTC()
-	if !at.Equal(want) {
+	if at == nil || !at.Equal(want) {
 		t.Fatalf("got %v, want %v", at, want)
 	}
 }
 
 func TestLastUpgradeLooksIntoTheRotatedLog(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "history.log"), []byte("Start-Date: 2026-10-12  01:00:00\nInstall: curl:amd64 (1)\n"), 0o644)
-	b, _ := os.ReadFile("testdata/history.log")
-	os.WriteFile(filepath.Join(dir, "history.log.1"), b, 0o644)
-	at, err := LastUpgrade(filepath.Join(dir, "history.log"))
-	if err != nil || at == nil || !at.Equal(time.Date(2026, 10, 11, 3, 12, 40, 0, time.Local)) {
-		t.Fatalf("got %v, %v", at, err)
+	os.WriteFile(filepath.Join(dir, "dpkg.log"), []byte("2026-10-12 01:00:00 install curl:amd64 <none> 1\n"), 0o644)
+	b, _ := os.ReadFile("testdata/dpkg.log")
+	os.WriteFile(filepath.Join(dir, "dpkg.log.1"), b, 0o644)
+	if at := LastUpgrade(filepath.Join(dir, "dpkg.log")); at == nil || !at.Equal(time.Date(2026, 10, 11, 3, 12, 40, 0, time.Local)) {
+		t.Fatalf("got %v", at)
 	}
+}
 
-	at, err = LastUpgrade(filepath.Join(t.TempDir(), "history.log"))
-	if err != nil || at != nil {
-		t.Fatalf("no log: got %v, %v", at, err)
+func TestALogItCannotReadCountsAsNone(t *testing.T) {
+	if at := LastUpgrade(filepath.Join(t.TempDir(), "dpkg.log")); at != nil {
+		t.Fatalf("no log: got %v", at)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dpkg.log")
+	os.WriteFile(path, []byte("2026-10-11 03:12:40 upgrade a:amd64 1 2\n"), 0o000)
+	if os.Getuid() != 0 {
+		if at := LastUpgrade(path); at != nil {
+			t.Fatalf("unreadable log: got %v", at)
+		}
 	}
 }

@@ -9,18 +9,20 @@ import (
 	"path/filepath"
 )
 
-// The modes the update step accepts. The step itself enforces the list; the
-// agent only never asks for anything else.
+// The modes the update step accepts, and the one request it reads while it
+// installs: stop after the package in progress. The step itself enforces
+// the list; the agent only never asks for anything else.
 const (
 	Refresh  = "refresh"
 	Security = "security"
 	Upgrade  = "upgrade"
+	Stop     = "stop"
 )
 
 // Request asks the step for mode. A request already waiting is left alone.
 func Request(requestsDir, mode string) error {
 	switch mode {
-	case Refresh, Security, Upgrade:
+	case Refresh, Security, Upgrade, Stop:
 	default:
 		return fmt.Errorf("no such mode: %q", mode)
 	}

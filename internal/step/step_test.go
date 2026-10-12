@@ -8,7 +8,7 @@ import (
 
 func TestARequestIsAnEmptyFileNamedAfterTheMode(t *testing.T) {
 	dir := t.TempDir()
-	for _, mode := range []string{Refresh, Security, Upgrade} {
+	for _, mode := range []string{Refresh, Security, Upgrade, Stop} {
 		if err := Request(dir, mode); err != nil {
 			t.Fatal(err)
 		}
