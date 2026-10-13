@@ -31,7 +31,9 @@ import (
 // releaseKeys are the public keys a release may be signed with: the
 // release pipeline's, and during a rotation the next one too. Anyone can
 // check a release against them.
-var releaseKeys = []string{}
+var releaseKeys = []string{
+	"lszf//nYmQDIL/5voTN70LG4AhalwsVmsLVJ8y7Df8M=", // made 2026-10-13
+}
 
 // devKey is set at build time, for development builds only:
 // -ldflags "-X github.com/patchpilothq/agent/internal/selfupdate.devKey=…".
