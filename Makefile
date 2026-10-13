@@ -10,7 +10,7 @@ VERSION ?= dev
 DEV_PUBLIC_KEY ?=
 GOFLAGS_BUILD := -trimpath -buildvcs=false -ldflags "-s -w -X main.version=$(VERSION) -X github.com/patchpilothq/agent/internal/selfupdate.devKey=$(DEV_PUBLIC_KEY)"
 
-.PHONY: precommit inventory build release clean
+.PHONY: precommit inventory build release keygen verify clean
 
 precommit:
 	@unformatted="$$(gofmt -l .)"; if [ -n "$$unformatted" ]; then echo "not gofmt-formatted:"; echo "$$unformatted"; exit 1; fi
@@ -36,6 +36,16 @@ build:
 # A release: the build, signed. PATCHPILOT_SIGNING_KEY in the environment.
 release: build
 	go run ./tools/release sign -dir dist
+
+# The release key, made once by the owner: writes the private key to
+# signing.key (or OUT) and prints the public key (docs/RELEASE.md in the
+# PatchPilot repository).
+keygen:
+	go run ./tools/release keygen -out $(or $(OUT),signing.key)
+
+# Checks a downloaded release in DIR against the public key KEY.
+verify:
+	go run ./tools/release verify -dir $(DIR) -key $(KEY)
 
 clean:
 	rm -rf dist

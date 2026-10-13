@@ -1,1 +1,3 @@
 /dist/
+# The release key, if made here (make keygen); it never belongs in git.
+/signing.key

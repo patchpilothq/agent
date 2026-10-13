@@ -1,7 +1,7 @@
 // Command release makes and publishes a signed agent release. It is not
 // part of the agent: the release pipeline and the key's keeper run it.
 //
-//	go run ./tools/release keygen -out signing.key   (once; prints the public key)
+//	go run ./tools/release keygen -out signing.key   (once; prints the public key; make keygen)
 //	go run ./tools/release sign -dir dist            (PATCHPILOT_SIGNING_KEY in the environment)
 //	go run ./tools/release verify -dir dist -key <public key>
 //	go run ./tools/release publish -dir dist -repo patchpilothq/agent -tag v0.2.0 -commit <sha>
