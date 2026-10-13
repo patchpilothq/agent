@@ -198,7 +198,7 @@ func selfUpdate(ctx context.Context, server, want string) error {
 }
 
 // refreshLists asks the update step to refresh the package lists at once
-// when it never has, and whenever its latest refresh is six hours old, so
+// when it never has, and whenever its latest refresh is an hour old, so
 // that pending updates are current — a cloud image comes without lists —
 // and the report says when they were refreshed (PROTOCOL.md).
 func refreshLists(ctx context.Context, requestsDir string, logger *log.Logger) {
@@ -211,14 +211,14 @@ func refreshLists(ctx context.Context, requestsDir string, logger *log.Logger) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(30 * time.Minute):
+		case <-time.After(5 * time.Minute):
 		}
 	}
 }
 
 // refreshDue says whether the package lists need a refresh.
 func refreshDue(lists step.Lists, now time.Time) bool {
-	return lists.CheckedAt.IsZero() || now.Sub(lists.CheckedAt) > 6*time.Hour
+	return lists.CheckedAt.IsZero() || now.Sub(lists.CheckedAt) > time.Hour
 }
 
 // state is a report as the session sends it: whole, or as the changes from

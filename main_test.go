@@ -68,15 +68,15 @@ func TestEnrollWantsATokenOnStandardInput(t *testing.T) {
 	}
 }
 
-func TestTheListsAreRefreshedAtOnceAndAfterSixHours(t *testing.T) {
+func TestTheListsAreRefreshedAtOnceAndAfterAnHour(t *testing.T) {
 	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
 	for _, c := range []struct {
 		checked time.Time
 		due     bool
 	}{
 		{time.Time{}, true},
-		{now.Add(-time.Hour), false},
-		{now.Add(-6*time.Hour - time.Minute), true},
+		{now.Add(-50 * time.Minute), false},
+		{now.Add(-time.Hour - time.Minute), true},
 	} {
 		if got := refreshDue(step.Lists{CheckedAt: c.checked}, now); got != c.due {
 			t.Errorf("checked %v: due %v, want %v", c.checked, got, c.due)

@@ -1,9 +1,10 @@
 held	linux-image-amd64
 last_upgrade_at	2026-10-11T03:12:40Z
-package	libc6	2.36-9	amd64
-package	libc6	2.36-9	i386
-package	libssl3	3.0.14-1~deb12u1	amd64
-package	openssl	3.0.14-1~deb12u1	amd64
+package	libc6	2.36-9	amd64	glibc	2.36-9
+package	libc6	2.36-9	i386	glibc	2.36-9
+package	libssl3	3.0.14-1~deb12u1	amd64	openssl	3.0.14-1~deb12u1
+package	openssl	3.0.14-1~deb12u1	amd64	openssl	3.0.14-1~deb12u1
+package	zlib1g	1:1.2.13.dfsg-1+b1	amd64	zlib	1:1.2.13.dfsg-1
 pro	
 reboot	1	dbus,libc6
 system	web-1	debian	12	bookworm	Debian GNU/Linux 12 (bookworm)		amd64	6.1.0-25-amd64

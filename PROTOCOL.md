@@ -88,7 +88,11 @@ of this agent it can build on, and whenever the server asks with
   `/etc/rpi-issue` exists, because Raspberry Pi OS's 64-bit edition calls
   itself Debian, and is left out otherwise.
 - `packages` — every installed package: name, version, architecture
-  (dpkg's status file).
+  (dpkg's status file), then the name of the source package it was built
+  from when that differs, and the source's version when that differs from
+  the package's (`["libssl3", "3.0.14-1~deb12u1", "amd64", "openssl"]`,
+  `["zlib1g", "1:1.2.13.dfsg-1+b1", "amd64", "zlib", "1:1.2.13.dfsg-1"]`):
+  security data is published per source package and version.
 - `updates` — what an upgrade would install, from `apt-get -s dist-upgrade`
   run without root: `source` is the source package it was built from
   (dpkg's status file), under which security data is published; `origins`
@@ -130,7 +134,7 @@ by their bytes:
 
 ```
 system	<hostname>	<os_id>	<os_version_id>	<os_codename>	<os_name>	<os_variant>	<arch>	<kernel>
-package	<name>	<version>	<architecture>
+package	<name>	<version>	<architecture>	<source>	<source version>
 update	<name>	<source>	<from>	<to>	<origins, sorted, joined by ",">	<security: 1 or 0>	<held_back: 1 or 0>
 held	<name>
 reboot	<required: 1 or 0>	<packages, sorted, joined by ",">
@@ -138,7 +142,9 @@ last_upgrade_at	<RFC 3339 in UTC to the second, or nothing>
 pro	<attached: 1 or 0, or nothing off Ubuntu>
 ```
 
-A missing value is empty; an update's missing `source` is its `name`. A tab,
+A missing value is empty; a package's missing source is its name and its
+missing source version its version, an update's missing `source` its
+`name`. A tab,
 a line feed or a carriage return inside a value counts as a space.
 `machine_id_hash` and `lists` are no part of it. `testdata/digest/` holds a
 report and its digest, which the agent's and the server's tests both check.
@@ -251,7 +257,7 @@ of the latest refresh without an error, `lists-error` apt's lines from the
 latest failed one, removed again by the next success. apt-get exits 0 when
 an index could not be fetched, so an `Err:` line in its output counts as a
 failure. The agent asks for a refresh when it starts and whenever the
-latest one is six hours old. Its own lines start with `PATCHPILOT `:
+latest one is an hour old. Its own lines start with `PATCHPILOT `:
 
 ```
 PATCHPILOT start refresh 2026-10-12T03:00:00Z

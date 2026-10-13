@@ -35,7 +35,7 @@ func Canonical(r Report) []byte {
 	s := r.System
 	rows := []string{row("system", s.Hostname, s.OSID, s.OSVersionID, s.OSCodename, s.OSName, s.OSVariant, s.Arch, s.Kernel)}
 	for _, p := range r.Packages {
-		rows = append(rows, row("package", p[0], p[1], p[2]))
+		rows = append(rows, row("package", p.Name, p.Version, p.Arch, p.SourceName(), p.SourceVer()))
 	}
 	for _, u := range r.Updates {
 		source := u.Source
@@ -113,20 +113,20 @@ func (r Report) DeltaFrom(base Report) Delta {
 		Updates:  UpdateChanges{Set: []apt.Update{}, Removed: []string{}},
 	}
 
-	before := map[[2]string]string{}
+	before := map[[2]string]packages.Package{}
 	for _, p := range base.Packages {
-		before[[2]string{p[0], p[2]}] = p[1]
+		before[[2]string{p.Name, p.Arch}] = p
 	}
 	now := map[[2]string]bool{}
 	for _, p := range r.Packages {
-		key := [2]string{p[0], p[2]}
+		key := [2]string{p.Name, p.Arch}
 		now[key] = true
-		if version, ok := before[key]; !ok || version != p[1] {
+		if old, ok := before[key]; !ok || old.Version != p.Version || old.SourceName() != p.SourceName() || old.SourceVer() != p.SourceVer() {
 			d.Packages.Set = append(d.Packages.Set, p)
 		}
 	}
 	for _, p := range base.Packages {
-		if key := [2]string{p[0], p[2]}; !now[key] {
+		if key := [2]string{p.Name, p.Arch}; !now[key] {
 			d.Packages.Removed = append(d.Packages.Removed, key)
 		}
 	}

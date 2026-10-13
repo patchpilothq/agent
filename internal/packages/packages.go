@@ -7,6 +7,7 @@ package packages
 import (
 	"bufio"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -15,8 +16,62 @@ import (
 	"time"
 )
 
-// Package is one installed package: name, version, architecture.
-type Package [3]string
+// Package is one installed package and the source package it was built
+// from, which security data is published under (PROTOCOL.md). In a report
+// it is [name, version, architecture], followed by the source's name when
+// that differs from the package's, and by the source's version when that
+// differs from the package's.
+type Package struct {
+	Name, Version, Arch   string
+	Source, SourceVersion string // empty: the package's own
+}
+
+// SourceName is the source package's name.
+func (p Package) SourceName() string {
+	if p.Source == "" {
+		return p.Name
+	}
+	return p.Source
+}
+
+// SourceVer is the source package's version.
+func (p Package) SourceVer() string {
+	if p.SourceVersion == "" {
+		return p.Version
+	}
+	return p.SourceVersion
+}
+
+// MarshalJSON writes the package as the protocol's array.
+func (p Package) MarshalJSON() ([]byte, error) {
+	fields := []string{p.Name, p.Version, p.Arch}
+	switch {
+	case p.SourceVersion != "" && p.SourceVersion != p.Version:
+		fields = append(fields, p.SourceName(), p.SourceVersion)
+	case p.Source != "" && p.Source != p.Name:
+		fields = append(fields, p.Source)
+	}
+	return json.Marshal(fields)
+}
+
+// UnmarshalJSON reads the protocol's array of three to five strings.
+func (p *Package) UnmarshalJSON(b []byte) error {
+	var fields []string
+	if err := json.Unmarshal(b, &fields); err != nil {
+		return err
+	}
+	if len(fields) < 3 || len(fields) > 5 {
+		return fmt.Errorf("a package has three to five fields, not %d", len(fields))
+	}
+	*p = Package{Name: fields[0], Version: fields[1], Arch: fields[2]}
+	if len(fields) > 3 {
+		p.Source = fields[3]
+	}
+	if len(fields) > 4 {
+		p.SourceVersion = fields[4]
+	}
+	return nil
+}
 
 // Installed reads dpkg's status file: every package whose status is
 // "install ok installed", the names of those put on hold, and the source
@@ -31,11 +86,18 @@ func Installed(statusPath string) (installed []Package, held []string, sources m
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	var name, version, arch, status, source string
+	var name, version, arch, status, source, sourceVersion string
 	flush := func() {
 		fields := strings.Fields(status)
 		if name != "" && len(fields) == 3 && fields[2] == "installed" {
-			installed = append(installed, Package{name, version, arch})
+			p := Package{Name: name, Version: version, Arch: arch}
+			if source != name {
+				p.Source = source
+			}
+			if sourceVersion != version {
+				p.SourceVersion = sourceVersion
+			}
+			installed = append(installed, p)
 			if fields[0] == "hold" {
 				held = append(held, name)
 			}
@@ -43,7 +105,7 @@ func Installed(statusPath string) (installed []Package, held []string, sources m
 				sources[name] = source
 			}
 		}
-		name, version, arch, status, source = "", "", "", "", ""
+		name, version, arch, status, source, sourceVersion = "", "", "", "", "", ""
 	}
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -66,9 +128,13 @@ func Installed(statusPath string) (installed []Package, held []string, sources m
 		case "Status":
 			status = value
 		case "Source":
-			// "glibc" or "glibc (2.36-9)": the version, when given, is the
-			// source's own and not needed here.
-			source = strings.Fields(value)[0]
+			// "glibc", or "glibc (2.36-9)" when the source's version is not
+			// the package's own.
+			fields := strings.Fields(value)
+			source = fields[0]
+			if len(fields) > 1 {
+				sourceVersion = strings.Trim(fields[1], "()")
+			}
 		}
 	}
 	flush()
@@ -76,10 +142,10 @@ func Installed(statusPath string) (installed []Package, held []string, sources m
 		return nil, nil, nil, fmt.Errorf("reading dpkg status: %w", err)
 	}
 	sort.Slice(installed, func(i, j int) bool {
-		if installed[i][0] != installed[j][0] {
-			return installed[i][0] < installed[j][0]
+		if installed[i].Name != installed[j].Name {
+			return installed[i].Name < installed[j].Name
 		}
-		return installed[i][2] < installed[j][2]
+		return installed[i].Arch < installed[j].Arch
 	})
 	sort.Strings(held)
 	return installed, held, sources, nil

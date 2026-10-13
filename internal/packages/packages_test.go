@@ -1,6 +1,7 @@
 package packages
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,10 +15,10 @@ func TestInstalledReadsDpkgStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Package{
-		{"libc6", "2.36-9+deb12u7", "amd64"},
-		{"libc6", "2.36-9+deb12u7", "i386"},
-		{"linux-image-amd64", "6.1.106-3", "amd64"},
-		{"openssl", "3.0.14-1~deb12u1", "amd64"},
+		{Name: "libc6", Version: "2.36-9+deb12u7", Arch: "amd64"},
+		{Name: "libc6", Version: "2.36-9+deb12u7", Arch: "i386", Source: "glibc"},
+		{Name: "linux-image-amd64", Version: "6.1.106-3", Arch: "amd64", Source: "linux-signed-amd64", SourceVersion: "6.1.106+3"},
+		{Name: "openssl", Version: "3.0.14-1~deb12u1", Arch: "amd64"},
 	}
 	if !reflect.DeepEqual(installed, want) {
 		t.Fatalf("installed %v\nwant %v", installed, want)
@@ -27,6 +28,33 @@ func TestInstalledReadsDpkgStatus(t *testing.T) {
 	}
 	if !reflect.DeepEqual(sources, map[string]string{"libc6": "glibc", "linux-image-amd64": "linux-signed-amd64"}) {
 		t.Fatalf("sources %v", sources)
+	}
+}
+
+func TestAPackageIsTheProtocolsArrayOfThreeToFive(t *testing.T) {
+	for _, c := range []struct {
+		p    Package
+		json string
+	}{
+		{Package{Name: "openssl", Version: "3.0.14", Arch: "amd64"}, `["openssl","3.0.14","amd64"]`},
+		{Package{Name: "libssl3", Version: "3.0.14", Arch: "amd64", Source: "openssl"}, `["libssl3","3.0.14","amd64","openssl"]`},
+		{Package{Name: "zlib1g", Version: "1:1.2.13-1+b1", Arch: "amd64", Source: "zlib", SourceVersion: "1:1.2.13-1"}, `["zlib1g","1:1.2.13-1+b1","amd64","zlib","1:1.2.13-1"]`},
+		{Package{Name: "foo", Version: "1+b1", Arch: "all", SourceVersion: "1"}, `["foo","1+b1","all","foo","1"]`},
+	} {
+		b, _ := json.Marshal(c.p)
+		if string(b) != c.json {
+			t.Errorf("%+v: %s, want %s", c.p, b, c.json)
+		}
+		var back Package
+		if err := json.Unmarshal(b, &back); err != nil || back.SourceName() != c.p.SourceName() || back.SourceVer() != c.p.SourceVer() || back.Version != c.p.Version {
+			t.Errorf("%s read back as %+v (%v)", b, back, err)
+		}
+	}
+	var p Package
+	for _, bad := range []string{`["a","1"]`, `["a","1","all","b","2","x"]`, `{"name":"a"}`} {
+		if json.Unmarshal([]byte(bad), &p) == nil {
+			t.Errorf("%s was read", bad)
+		}
 	}
 }
 

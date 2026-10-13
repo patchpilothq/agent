@@ -56,10 +56,11 @@ func TestADeltaCarriesOnlyWhatChanged(t *testing.T) {
 	base := vector(t)
 	next := base
 	next.Packages = []packages.Package{
-		{"openssl", "3.0.15-1~deb12u1", "amd64"}, // upgraded
-		{"libc6", "2.36-9", "i386"},
-		{"libc6", "2.36-9", "amd64"},
-		{"curl", "7.88.1-10", "amd64"}, // new; libssl3 is gone
+		{Name: "openssl", Version: "3.0.15-1~deb12u1", Arch: "amd64"}, // upgraded
+		{Name: "libc6", Version: "2.36-9", Arch: "i386", Source: "glibc"},
+		{Name: "libc6", Version: "2.36-9", Arch: "amd64", Source: "glibc"},
+		{Name: "zlib1g", Version: "1:1.2.13.dfsg-1+b1", Arch: "amd64", Source: "zlib", SourceVersion: "1:1.2.13.dfsg-1"},
+		{Name: "curl", Version: "7.88.1-10", Arch: "amd64"}, // new; libssl3 is gone
 	}
 	next.Updates = []apt.Update{base.Updates[1]} // openssl's update is installed
 
@@ -67,7 +68,7 @@ func TestADeltaCarriesOnlyWhatChanged(t *testing.T) {
 	if d.Type != "report_delta" || d.Base != base.Digest() || d.Digest != next.Digest() {
 		t.Fatalf("names %+v", d)
 	}
-	if got := d.Packages.Set; len(got) != 2 || got[0][0] != "openssl" || got[1][0] != "curl" {
+	if got := d.Packages.Set; len(got) != 2 || got[0].Name != "openssl" || got[1].Name != "curl" {
 		t.Fatalf("set %v", got)
 	}
 	if got := d.Packages.Removed; len(got) != 1 || got[0] != [2]string{"libssl3", "amd64"} {
@@ -83,7 +84,7 @@ func TestADeltaCarriesOnlyWhatChanged(t *testing.T) {
 func TestADeltaAppliedOntoItsBaseGivesTheNewState(t *testing.T) {
 	base := vector(t)
 	next := base
-	next.Packages = append(slices.Clone(base.Packages[1:]), packages.Package{"curl", "7.88.1-10", "amd64"})
+	next.Packages = append(slices.Clone(base.Packages[1:]), packages.Package{Name: "curl", Version: "7.88.1-10", Arch: "amd64"})
 	changed := base.Updates[0]
 	changed.To = "3.0.16-1~deb12u1"
 	next.Updates = []apt.Update{changed}
@@ -97,12 +98,12 @@ func TestADeltaAppliedOntoItsBaseGivesTheNewState(t *testing.T) {
 	applied := base
 	keep := func(p packages.Package) bool {
 		for _, r := range wire.Packages.Removed {
-			if r == [2]string{p[0], p[2]} {
+			if r == [2]string{p.Name, p.Arch} {
 				return false
 			}
 		}
 		for _, s := range wire.Packages.Set {
-			if s[0] == p[0] && s[2] == p[2] {
+			if s.Name == p.Name && s.Arch == p.Arch {
 				return false
 			}
 		}
