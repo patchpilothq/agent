@@ -24,10 +24,7 @@ type Report struct {
 	Held          []string           `json:"held"`
 	Reboot        packages.Reboot    `json:"reboot"`
 	LastUpgradeAt *time.Time         `json:"last_upgrade_at"`
-	// The package lists, as the update step last refreshed them.
-	ListsRefreshedAt *time.Time `json:"lists_refreshed_at"`
-	ListsError       string     `json:"lists_error,omitempty"`
-	Pro              *Pro       `json:"pro,omitempty"`
+	Pro           *Pro               `json:"pro,omitempty"`
 }
 
 // Pro says whether Ubuntu Pro is attached; sent on Ubuntu only.
@@ -80,8 +77,6 @@ func Collect(ctx context.Context, s Sources) (Report, error) {
 		return r, err
 	}
 	r.LastUpgradeAt = packages.LastUpgrade(s.Root + "/var/log/dpkg.log")
-	lists := step.ReadLists(s.Root + step.RunsDir)
-	r.ListsRefreshedAt, r.ListsError = lists.RefreshedAt, lists.Error
 	if r.System.OSID == "ubuntu" && s.ProStatus != nil {
 		r.Pro = &Pro{}
 		// No Pro client, or one that cannot answer, is reported as not attached.
@@ -95,6 +90,25 @@ func Collect(ctx context.Context, s Sources) (Report, error) {
 		}
 	}
 	return r, nil
+}
+
+// Lists is the "lists" message: how the update step last refreshed the
+// package lists. It is no part of a report's state, so that a refresh that
+// changed nothing sends this and not a report.
+type Lists struct {
+	Type        string     `json:"type"`
+	RefreshedAt *time.Time `json:"refreshed_at"`
+	Error       *string    `json:"error"`
+}
+
+// ReadLists reads the update step's record of the package lists.
+func ReadLists(s Sources) Lists {
+	lists := step.ReadLists(s.Root + step.RunsDir)
+	l := Lists{Type: "lists", RefreshedAt: lists.RefreshedAt}
+	if lists.Error != "" {
+		l.Error = &lists.Error
+	}
+	return l
 }
 
 func proStatus(ctx context.Context) ([]byte, error) {

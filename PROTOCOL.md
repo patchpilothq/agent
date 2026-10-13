@@ -59,8 +59,9 @@ The server pings every 30 seconds; a connection that has heard nothing for
 {"type": "hello", "protocol": 1, "agent_version": "0.1.0"}
 ```
 
-`report` — after `hello`, and again whenever any of it changes. It is the
-whole state, never a difference.
+`report` — the whole state: after `welcome` when the server holds no state
+of this agent it can build on, and whenever the server asks with
+`report_needed`. Every other change goes as a `report_delta` (below).
 
 ```json
 {"type": "report",
@@ -79,7 +80,6 @@ whole state, never a difference.
  "held": ["linux-image-amd64"],
  "reboot": {"required": true, "packages": ["linux-image-6.1.0-26-amd64"]},
  "last_upgrade_at": "2026-10-11T03:12:40Z",
- "lists_refreshed_at": "2026-10-12T03:00:41Z",
  "pro": {"attached": false}}
 ```
 
@@ -100,20 +100,90 @@ whole state, never a difference.
 - `last_upgrade_at` — the last `upgrade` in dpkg's log (`/var/log/dpkg.log`
   and its rotations), if any; apt's history log is not readable by the
   agent's user everywhere.
-- `lists_refreshed_at` — when the update step last refreshed the package
-  lists without an error (`null` until it has); `updates` is only as recent
-  as this.
-- `lists_error` — what apt said when the update step's latest refresh
-  failed: its `E:` and `W:` lines, at most ten. Left out when that refresh
-  succeeded.
 - `pro` — whether Ubuntu Pro is attached, on Ubuntu only.
 
-That list is everything the agent reads. It reads no file contents beyond
-these, no databases, no environment.
+`lists` — the outcome of the update step's latest refresh of the package
+lists, after `welcome` and whenever it changes:
+`{"type": "lists", "refreshed_at": "2026-10-12T03:00:41Z", "error": null}`.
+
+- `refreshed_at` — when the update step last refreshed the package lists
+  without an error (`null` until it has); `updates` is only as recent as
+  this.
+- `error` — what apt said when the update step's latest refresh failed: its
+  `E:` and `W:` lines, at most ten; `null` when it succeeded.
+
+Agents up to 0.1.0 sent both inside `report`, as `lists_refreshed_at` and
+`lists_error`; the server still reads them there.
+
+That is everything the agent reads. It reads no file contents beyond these,
+no databases, no environment.
+
+### Only what changed
+
+After the first `report`, an agent sends what changed since a state the
+server acknowledged, never the whole state again (owner, 2026-10-13).
+
+**A state's digest.** Agent and server name a state by the SHA-256 of its
+canonical text, in lowercase hex. The canonical text has one line per item,
+each a tab-separated row ending in a line feed, and the lines are sorted
+by their bytes:
+
+```
+system	<hostname>	<os_id>	<os_version_id>	<os_codename>	<os_name>	<os_variant>	<arch>	<kernel>
+package	<name>	<version>	<architecture>
+update	<name>	<source>	<from>	<to>	<origins, sorted, joined by ",">	<security: 1 or 0>	<held_back: 1 or 0>
+held	<name>
+reboot	<required: 1 or 0>	<packages, sorted, joined by ",">
+last_upgrade_at	<RFC 3339 in UTC to the second, or nothing>
+pro	<attached: 1 or 0, or nothing off Ubuntu>
+```
+
+A missing value is empty; an update's missing `source` is its `name`. A tab,
+a line feed or a carriage return inside a value counts as a space.
+`machine_id_hash` and `lists` are no part of it. `testdata/digest/` holds a
+report and its digest, which the agent's and the server's tests both check.
+
+`report_delta` — the changes from the state named `base` to the state named
+`digest`:
+
+```json
+{"type": "report_delta",
+ "base": "<digest the server acknowledged>",
+ "digest": "<digest of the state after it>",
+ "system": {…}, "held": […], "reboot": {…},
+ "last_upgrade_at": "…", "pro": {…},
+ "packages": {"set": [["openssl", "3.0.15-1~deb12u1", "amd64"]],
+              "removed": [["libssl1.1", "amd64"]]},
+ "updates": {"set": [{"name": "libc6", …}],
+             "removed": ["openssl"]}}
+```
+
+`system`, `held`, `reboot`, `last_upgrade_at` and `pro` are whole, as in
+`report`. `packages.set` adds or replaces packages by name and
+architecture, `packages.removed` names the ones gone; `updates.set` adds or
+replaces updates by name, `updates.removed` names the ones gone.
+
+The agent keeps the last state the server acknowledged and sends one delta
+at a time, the next only after the server answered. It sends nothing when
+its state is the one the server holds.
 
 ### From the server
 
-`welcome` — after `hello`: `{"type": "welcome", "server_id": "<uuid>"}`.
+`welcome` — after `hello`:
+`{"type": "welcome", "server_id": "<uuid>", "report_digest": "<digest>"}`,
+where `report_digest` is the digest of the state the server holds for this
+agent, or `null`. A server whose `welcome` has no `report_digest` key at all
+reads only `report`, and the agent sends it the whole state on every
+change.
+
+`report_ack` — `{"type": "report_ack", "digest": "<digest>"}`: the server
+holds the state of the `report` or `report_delta` it just read.
+
+`report_needed` — `{"type": "report_needed"}`: send the whole state. The
+server sends it after a `report_delta` it could not apply — an unknown
+base, a digest that does not match the state after applying, a message out
+of bounds — and at any time when it holds no state it trusts. The agent
+answers with a `report`.
 
 `run` — install the pending updates now:
 `{"type": "run", "run_id": "<uuid>", "mode": "upgrade"}`, where `mode` is

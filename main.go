@@ -126,10 +126,14 @@ func serve(ctx context.Context, server, credentialPath, requestsDir string, logg
 		Context:     ctx,
 	}
 	session := &client.Session{
-		Server:      server,
-		Credential:  cred,
-		Version:     version,
-		Collect:     func(ctx context.Context) (any, error) { return report.Collect(ctx, report.Machine()) },
+		Server:     server,
+		Credential: cred,
+		Version:    version,
+		Collect: func(ctx context.Context) (client.State, error) {
+			r, err := report.Collect(ctx, report.Machine())
+			return state{r}, err
+		},
+		Lists:       func() any { return report.ReadLists(report.Machine()) },
 		Fingerprint: fingerprint,
 		Log:         logger,
 		OnMessage: func(_ context.Context, msg map[string]any) {
@@ -216,6 +220,12 @@ func refreshLists(ctx context.Context, requestsDir string, logger *log.Logger) {
 func refreshDue(lists step.Lists, now time.Time) bool {
 	return lists.CheckedAt.IsZero() || now.Sub(lists.CheckedAt) > 6*time.Hour
 }
+
+// state is a report as the session sends it: whole, or as the changes from
+// the state the server acknowledged (PROTOCOL.md, "Only what changed").
+type state struct{ report.Report }
+
+func (s state) DeltaFrom(base client.State) any { return s.Report.DeltaFrom(base.(state).Report) }
 
 // fingerprint changes when anything a report is read from may have changed.
 func fingerprint() string {

@@ -60,8 +60,9 @@ func TestTheCredentialIsReadableByItsOwnerOnly(t *testing.T) {
 	}
 }
 
-// A server that checks the credential and records what the agent sends.
-func socketServer(t *testing.T, got chan<- map[string]any) *httptest.Server {
+// A server that checks the credential, sends welcome, records what the
+// agent sends, and answers with what answer returns.
+func socketServer(t *testing.T, got chan<- map[string]any, welcome string, answer func(map[string]any) string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/agents/socket" {
 			t.Errorf("path %s", r.URL.Path)
@@ -75,7 +76,7 @@ func socketServer(t *testing.T, got chan<- map[string]any) *httptest.Server {
 			return
 		}
 		defer conn.CloseNow()
-		conn.Write(r.Context(), websocket.MessageText, []byte(`{"type":"welcome","server_id":"s1"}`))
+		conn.Write(r.Context(), websocket.MessageText, []byte(welcome))
 		for {
 			_, b, err := conn.Read(r.Context())
 			if err != nil {
@@ -84,64 +85,197 @@ func socketServer(t *testing.T, got chan<- map[string]any) *httptest.Server {
 			var msg map[string]any
 			json.Unmarshal(b, &msg)
 			got <- msg
+			if answer != nil {
+				if reply := answer(msg); reply != "" {
+					conn.Write(r.Context(), websocket.MessageText, []byte(reply))
+				}
+			}
 		}
 	}))
 }
 
-func TestTheSessionSaysHelloThenReportsAndReportsAgainOnChange(t *testing.T) {
-	got := make(chan map[string]any, 10)
-	srv := socketServer(t, got)
-	defer srv.Close()
+// A state named by its version, which changes with the fingerprint.
+type fakeState struct{ version string }
 
-	var fingerprint, collected atomic.Int32
-	s := &Session{
+func (f fakeState) Digest() string { return f.version }
+func (f fakeState) Full() any      { return map[string]any{"type": "report", "v": f.version} }
+func (f fakeState) DeltaFrom(base State) any {
+	return map[string]any{"type": "report_delta", "base": base.Digest(), "digest": f.version}
+}
+
+// ack acknowledges every report and delta, as the server does.
+func ack(msg map[string]any) string {
+	switch msg["type"] {
+	case "report":
+		return `{"type":"report_ack","digest":"` + msg["v"].(string) + `"}`
+	case "report_delta":
+		return `{"type":"report_ack","digest":"` + msg["digest"].(string) + `"}`
+	}
+	return ""
+}
+
+func session(srv *httptest.Server, version *atomic.Int32) *Session {
+	return &Session{
 		Server:     srv.URL,
 		Credential: Credential{"s1", "secret"},
 		Version:    "1.2.3",
-		Collect: func(context.Context) (any, error) {
-			return map[string]any{"type": "report", "n": collected.Add(1)}, nil
+		Collect: func(context.Context) (State, error) {
+			return fakeState{string(rune('a' + version.Load()))}, nil
 		},
-		Fingerprint: func() string { return string(rune('a' + fingerprint.Load())) },
+		Fingerprint: func() string { return string(rune('a' + version.Load())) },
 		Log:         log.New(io.Discard, "", 0),
 		CheckEvery:  10 * time.Millisecond,
 		PingEvery:   time.Hour,
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go s.Run(ctx)
+}
 
-	next := func() map[string]any {
-		select {
-		case m := <-got:
-			return m
-		case <-time.After(5 * time.Second):
-			t.Fatal("nothing arrived")
-			return nil
-		}
-	}
-	if m := next(); m["type"] != "hello" || m["agent_version"] != "1.2.3" || m["protocol"] != float64(1) {
-		t.Fatalf("first message %v", m)
-	}
-	if m := next(); m["type"] != "report" {
-		t.Fatalf("second message %v", m)
-	}
+func receive(t *testing.T, got <-chan map[string]any) map[string]any {
+	t.Helper()
 	select {
 	case m := <-got:
-		t.Fatalf("sent again without a change: %v", m)
-	case <-time.After(100 * time.Millisecond):
+		return m
+	case <-time.After(5 * time.Second):
+		t.Fatal("nothing arrived")
+		return nil
 	}
-	fingerprint.Store(1)
-	if m := next(); m["type"] != "report" || m["n"] != float64(2) {
+}
+
+func silence(t *testing.T, got <-chan map[string]any) {
+	t.Helper()
+	select {
+	case m := <-got:
+		t.Fatalf("sent without a reason: %v", m)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+func TestAServerWithoutDigestsGetsTheWholeReportOnEveryChange(t *testing.T) {
+	got := make(chan map[string]any, 10)
+	srv := socketServer(t, got, `{"type":"welcome","server_id":"s1"}`, nil)
+	defer srv.Close()
+	var version atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go session(srv, &version).Run(ctx)
+
+	if m := receive(t, got); m["type"] != "hello" || m["agent_version"] != "1.2.3" || m["protocol"] != float64(1) {
+		t.Fatalf("first message %v", m)
+	}
+	if m := receive(t, got); m["type"] != "report" || m["v"] != "a" {
+		t.Fatalf("second message %v", m)
+	}
+	silence(t, got)
+	version.Store(1)
+	if m := receive(t, got); m["type"] != "report" || m["v"] != "b" {
 		t.Fatalf("after a change %v", m)
 	}
 }
 
+func TestAfterTheFirstReportOnlyTheChangesAreSent(t *testing.T) {
+	got := make(chan map[string]any, 10)
+	srv := socketServer(t, got, `{"type":"welcome","server_id":"s1","report_digest":null}`, ack)
+	defer srv.Close()
+	var version atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go session(srv, &version).Run(ctx)
+
+	receive(t, got) // hello
+	if m := receive(t, got); m["type"] != "report" || m["v"] != "a" {
+		t.Fatalf("first report %v", m)
+	}
+	silence(t, got)
+	version.Store(1)
+	if m := receive(t, got); m["type"] != "report_delta" || m["base"] != "a" || m["digest"] != "b" {
+		t.Fatalf("after a change %v", m)
+	}
+	silence(t, got)
+}
+
+func TestAReconnectSendsNothingWhenTheServerHoldsTheState(t *testing.T) {
+	got := make(chan map[string]any, 10)
+	srv := socketServer(t, got, `{"type":"welcome","server_id":"s1","report_digest":"a"}`, ack)
+	defer srv.Close()
+	var version atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go session(srv, &version).Run(ctx)
+
+	receive(t, got) // hello
+	silence(t, got)
+	version.Store(1)
+	if m := receive(t, got); m["type"] != "report_delta" || m["base"] != "a" || m["digest"] != "b" {
+		t.Fatalf("after a change %v", m)
+	}
+}
+
+func TestTheServerCanAskForTheWholeReportAtAnyTime(t *testing.T) {
+	got := make(chan map[string]any, 10)
+	asked := false
+	srv := socketServer(t, got, `{"type":"welcome","server_id":"s1","report_digest":"a"}`, func(msg map[string]any) string {
+		if msg["type"] == "hello" && !asked {
+			asked = true
+			return `{"type":"report_needed"}`
+		}
+		return ack(msg)
+	})
+	defer srv.Close()
+	var version atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go session(srv, &version).Run(ctx)
+
+	receive(t, got) // hello
+	if m := receive(t, got); m["type"] != "report" || m["v"] != "a" {
+		t.Fatalf("asked for the whole report, got %v", m)
+	}
+}
+
+func TestOneDeltaAtATime(t *testing.T) {
+	got := make(chan map[string]any, 10)
+	srv := socketServer(t, got, `{"type":"welcome","server_id":"s1","report_digest":null}`, nil)
+	defer srv.Close()
+	var version atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go session(srv, &version).Run(ctx)
+
+	receive(t, got) // hello
+	receive(t, got) // the report, never acknowledged
+	version.Store(1)
+	silence(t, got)
+}
+
+func TestTheListsGoAsTheirOwnMessageWhenTheyChange(t *testing.T) {
+	got := make(chan map[string]any, 10)
+	srv := socketServer(t, got, `{"type":"welcome","server_id":"s1","report_digest":"a"}`, ack)
+	defer srv.Close()
+	var version, refreshed atomic.Int32
+	s := session(srv, &version)
+	s.Lists = func() any { return map[string]any{"type": "lists", "n": refreshed.Load()} }
+	s.Fingerprint = func() string { return string(rune('a'+version.Load())) + string(rune('a'+refreshed.Load())) }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.Run(ctx)
+
+	receive(t, got) // hello
+	if m := receive(t, got); m["type"] != "lists" || m["n"] != float64(0) {
+		t.Fatalf("on connecting %v", m)
+	}
+	silence(t, got)
+	refreshed.Store(1)
+	if m := receive(t, got); m["type"] != "lists" || m["n"] != float64(1) {
+		t.Fatalf("after a refresh %v", m)
+	}
+	silence(t, got)
+}
+
 func TestARejectedCredentialEndsTheSession(t *testing.T) {
-	srv := socketServer(t, make(chan map[string]any, 10))
+	srv := socketServer(t, make(chan map[string]any, 10), `{"type":"welcome","server_id":"s1"}`, nil)
 	defer srv.Close()
 	s := &Session{
 		Server: srv.URL, Credential: Credential{"s1", "wrong"},
-		Collect:     func(context.Context) (any, error) { return nil, nil },
+		Collect:     func(context.Context) (State, error) { return fakeState{}, nil },
 		Fingerprint: func() string { return "" },
 		Log:         log.New(io.Discard, "", 0),
 	}

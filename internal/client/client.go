@@ -112,9 +112,11 @@ type Session struct {
 	Credential Credential
 	Version    string
 	// Collect reads a fresh report; Fingerprint is a cheap value that changes
-	// when a report may have.
-	Collect     func(ctx context.Context) (any, error)
+	// when a report may have. Lists, if set, is the "lists" message, sent
+	// whenever it changes.
+	Collect     func(ctx context.Context) (State, error)
 	Fingerprint func() string
+	Lists       func() any
 	Log         *log.Logger
 	// OnMessage gets every message from the server but "welcome";
 	// OnConnect runs after each hello. Both may be nil.
@@ -122,12 +124,25 @@ type Session struct {
 	OnConnect func(ctx context.Context)
 
 	// Zero values take the defaults below; tests shorten them.
-	CheckEvery   time.Duration // how often the fingerprint is compared
-	CollectEvery time.Duration // a full report at least this often
-	PingEvery    time.Duration
+	CheckEvery    time.Duration // how often the fingerprint is compared
+	CollectEvery  time.Duration // the state read again at least this often
+	PingEvery     time.Duration
+	WelcomeWithin time.Duration
 
 	mu   sync.Mutex
 	conn *websocket.Conn
+
+	// The last state the server acknowledged, across reconnects: what a
+	// delta is taken from.
+	acked State
+}
+
+// State is a report the session can name, and send whole or as the changes
+// from an earlier one (PROTOCOL.md, "Only what changed").
+type State interface {
+	Digest() string
+	Full() any
+	DeltaFrom(base State) any
 }
 
 // ErrNotConnected is what Send answers while there is no connection.
@@ -165,6 +180,9 @@ func (s *Session) defaults() {
 	}
 	if s.PingEvery == 0 {
 		s.PingEvery = 30 * time.Second
+	}
+	if s.WelcomeWithin == 0 {
+		s.WelcomeWithin = 30 * time.Second
 	}
 }
 
@@ -209,34 +227,87 @@ func (s *Session) once(ctx context.Context) error {
 	s.setConn(conn)
 	defer s.setConn(nil)
 
+	control := make(chan map[string]any, 8)
 	readErr := make(chan error, 1)
-	go func() { readErr <- s.read(ctx, conn) }()
+	go func() { readErr <- s.read(ctx, conn, control) }()
 
 	if err := s.send(ctx, conn, map[string]any{"type": "hello", "protocol": 1, "agent_version": s.Version}); err != nil {
 		return err
 	}
 
-	var sent []byte
-	report := func() error {
-		r, err := s.Collect(ctx)
+	// The welcome names the state the server holds. Without report_digest
+	// the server reads only whole reports, sent on every change.
+	deltas, held := false, ""
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-readErr:
+		return err
+	case msg := <-control:
+		if msg["type"] == "welcome" {
+			s.Log.Printf("the server knows this machine as %v", msg["server_id"])
+			if digest, ok := msg["report_digest"]; ok {
+				deltas = true
+				held, _ = digest.(string)
+			}
+		}
+	case <-time.After(s.WelcomeWithin):
+	}
+
+	var pending State    // sent, not yet acknowledged
+	var sentWhole []byte // without deltas: the last whole report sent
+	report := func(whole bool) error {
+		current, err := s.Collect(ctx)
 		if err != nil {
 			s.Log.Printf("reading the machine's state: %v", err)
 			return nil // the connection is fine; the next check tries again
 		}
-		b, err := json.Marshal(r)
-		if err != nil {
-			return err
+		if !deltas {
+			b, err := json.Marshal(current.Full())
+			if err != nil {
+				return err
+			}
+			if bytes.Equal(b, sentWhole) {
+				return nil
+			}
+			sentWhole = b
+			return conn.Write(ctx, websocket.MessageText, b)
 		}
-		if bytes.Equal(b, sent) {
+		if pending != nil && !whole {
+			return nil // one at a time: the next after the server answered
+		}
+		digest := current.Digest()
+		if !whole && digest == held {
+			s.acked = current
 			return nil
 		}
-		if err := conn.Write(ctx, websocket.MessageText, b); err != nil {
+		var msg any = current.Full()
+		if !whole && s.acked != nil && s.acked.Digest() == held {
+			msg = current.DeltaFrom(s.acked)
+		}
+		if err := s.send(ctx, conn, msg); err != nil {
 			return err
 		}
-		sent = b
+		pending = current
 		return nil
 	}
-	if err := report(); err != nil {
+	var sentLists []byte
+	lists := func() error {
+		if s.Lists == nil {
+			return nil
+		}
+		b, err := json.Marshal(s.Lists())
+		if err != nil || bytes.Equal(b, sentLists) {
+			return err
+		}
+		sentLists = b
+		return conn.Write(ctx, websocket.MessageText, b)
+	}
+
+	if err := report(false); err != nil {
+		return err
+	}
+	if err := lists(); err != nil {
 		return err
 	}
 	s.Log.Printf("connected to %s", s.Server)
@@ -258,6 +329,18 @@ func (s *Session) once(ctx context.Context) error {
 			return ctx.Err()
 		case err := <-readErr:
 			return err
+		case msg := <-control:
+			switch msg["type"] {
+			case "report_ack":
+				if digest, _ := msg["digest"].(string); pending != nil && pending.Digest() == digest {
+					s.acked, held, pending = pending, digest, nil
+				}
+			case "report_needed":
+				pending = nil
+				if err := report(true); err != nil {
+					return err
+				}
+			}
 		case <-ping.C:
 			pctx, pcancel := context.WithTimeout(ctx, 10*time.Second)
 			err := conn.Ping(pctx)
@@ -268,7 +351,10 @@ func (s *Session) once(ctx context.Context) error {
 		case <-check.C:
 			if f := s.Fingerprint(); f != fingerprint || time.Since(lastCollect) >= s.CollectEvery {
 				fingerprint, lastCollect = f, time.Now()
-				if err := report(); err != nil {
+				if err := report(false); err != nil {
+					return err
+				}
+				if err := lists(); err != nil {
 					return err
 				}
 			}
@@ -276,7 +362,9 @@ func (s *Session) once(ctx context.Context) error {
 	}
 }
 
-func (s *Session) read(ctx context.Context, conn *websocket.Conn) error {
+// read hands the welcome and the server's answers about reports to the
+// session's loop, and everything else to OnMessage.
+func (s *Session) read(ctx context.Context, conn *websocket.Conn, control chan<- map[string]any) error {
 	for {
 		_, b, err := conn.Read(ctx)
 		if err != nil {
@@ -287,8 +375,12 @@ func (s *Session) read(ctx context.Context, conn *websocket.Conn) error {
 			continue
 		}
 		switch msg["type"] {
-		case "welcome":
-			s.Log.Printf("the server knows this machine as %v", msg["server_id"])
+		case "welcome", "report_ack", "report_needed":
+			select {
+			case control <- msg:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		default:
 			if s.OnMessage != nil {
 				s.OnMessage(ctx, msg)

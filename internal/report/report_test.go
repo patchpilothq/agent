@@ -56,13 +56,18 @@ func TestAReportCarriesExactlyThePublishedFields(t *testing.T) {
 	for k := range fields {
 		keys = append(keys, k)
 	}
-	want := "held last_upgrade_at lists_error lists_refreshed_at packages pro reboot system type updates"
+	want := "held last_upgrade_at packages pro reboot system type updates"
 	sort.Strings(keys)
 	if got := strings.Join(keys, " "); got != want {
 		t.Fatalf("fields %q, want %q (PROTOCOL.md)", got, want)
 	}
-	if r.ListsRefreshedAt == nil || !strings.HasPrefix(r.ListsError, "E: The repository") {
-		t.Fatalf("lists: %v %q", r.ListsRefreshedAt, r.ListsError)
+	lists := ReadLists(Sources{Root: root})
+	if lists.Type != "lists" || lists.RefreshedAt == nil || lists.Error == nil || !strings.HasPrefix(*lists.Error, "E: The repository") {
+		t.Fatalf("lists: %+v", lists)
+	}
+	b, _ = json.Marshal(lists)
+	if string(b) != `{"type":"lists","refreshed_at":"2026-10-12T03:00:41Z","error":"E: The repository 'http://deb.debian.org/debian bullseye-backports Release' does not have a Release file."}` {
+		t.Fatalf("lists message %s", b)
 	}
 	if r.Pro == nil || !r.Pro.Attached || r.System.OSID != "ubuntu" || len(r.Updates) != 2 || !r.Updates[0].Security {
 		t.Fatalf("got %+v", r)

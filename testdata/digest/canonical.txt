@@ -1,0 +1,11 @@
+held	linux-image-amd64
+last_upgrade_at	2026-10-11T03:12:40Z
+package	libc6	2.36-9	amd64
+package	libc6	2.36-9	i386
+package	libssl3	3.0.14-1~deb12u1	amd64
+package	openssl	3.0.14-1~deb12u1	amd64
+pro	
+reboot	1	dbus,libc6
+system	web-1	debian	12	bookworm	Debian GNU/Linux 12 (bookworm)		amd64	6.1.0-25-amd64
+update	libc6	libc6	2.36-9	2.36-9+deb12u8	Debian:12.7/stable	0	1
+update	openssl	openssl	3.0.14-1~deb12u1	3.0.15-1~deb12u1	Debian-Security:12/stable-security,Debian:12.7/stable	1	0
