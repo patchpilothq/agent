@@ -129,6 +129,7 @@ func serve(ctx context.Context, server, credentialPath, requestsDir string, logg
 		Server:     server,
 		Credential: cred,
 		Version:    version,
+		BootedAt:   func() *time.Time { return system.BootedAt("") },
 		Collect: func(ctx context.Context) (client.State, error) {
 			r, err := report.Collect(ctx, report.Machine())
 			return state{r}, err

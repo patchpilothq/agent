@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReadsTheMachineFromItsFiles(t *testing.T) {
@@ -72,5 +73,28 @@ func TestRaspberryPiOSIsToldApartFromDebian(t *testing.T) {
 	plain, _ := Read(Paths{Root: "testdata/debian"})
 	if plain.OSVariant != "" {
 		t.Fatalf("plain Debian got variant %q", plain.OSVariant)
+	}
+}
+
+func TestReadsWhenTheMachineStarted(t *testing.T) {
+	got := BootedAt("testdata/debian")
+	if got == nil || !got.Equal(time.Unix(1791000000, 0)) {
+		t.Fatalf("BootedAt = %v", got)
+	}
+	if got := BootedAt(t.TempDir()); got != nil {
+		t.Fatalf("without /proc/stat: %v", got)
+	}
+
+	for _, stat := range []string{"cpu 1 2 3\n", "btime soon\n", "btime -5\n", "btime 1 2\n"} {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "proc"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "proc", "stat"), []byte(stat), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := BootedAt(root); got != nil {
+			t.Fatalf("%q: %v", stat, got)
+		}
 	}
 }

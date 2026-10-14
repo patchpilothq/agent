@@ -111,6 +111,8 @@ type Session struct {
 	Server     string
 	Credential Credential
 	Version    string
+	// BootedAt, if set, says when the machine started, for hello.
+	BootedAt func() *time.Time
 	// Collect reads a fresh report; Fingerprint is a cheap value that changes
 	// when a report may have. Lists, if set, is the "lists" message, sent
 	// whenever it changes.
@@ -231,7 +233,13 @@ func (s *Session) once(ctx context.Context) error {
 	readErr := make(chan error, 1)
 	go func() { readErr <- s.read(ctx, conn, control) }()
 
-	if err := s.send(ctx, conn, map[string]any{"type": "hello", "protocol": 1, "agent_version": s.Version}); err != nil {
+	hello := map[string]any{"type": "hello", "protocol": 1, "agent_version": s.Version}
+	if s.BootedAt != nil {
+		if at := s.BootedAt(); at != nil {
+			hello["booted_at"] = at.UTC().Format(time.RFC3339)
+		}
+	}
+	if err := s.send(ctx, conn, hello); err != nil {
 		return err
 	}
 

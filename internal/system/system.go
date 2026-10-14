@@ -1,6 +1,6 @@
 // Package system reads what the agent reports about the machine itself: its
-// name, its release, its architecture and kernel, and a hash of its machine
-// ID. Everything here is readable by any user.
+// name, its release, its architecture and kernel, a hash of its machine ID,
+// and when it started. Everything here is readable by any user.
 package system
 
 import (
@@ -12,7 +12,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Info is the "system" object of a report (PROTOCOL.md).
@@ -131,4 +133,28 @@ func readTrimmed(path string) (string, error) {
 		return "", fmt.Errorf("reading %s: %w", path, err)
 	}
 	return strings.TrimSpace(string(b)), nil
+}
+
+// BootedAt reads when the machine started: the kernel's "btime" in
+// /proc/stat, in seconds since the epoch (PROTOCOL.md, "hello"). Nil when it
+// cannot be read. The file is read whole: on a machine with many cores the
+// lines before "btime" are long.
+func BootedAt(root string) *time.Time {
+	b, err := os.ReadFile(root + "/proc/stat")
+	if err != nil {
+		return nil
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || fields[0] != "btime" {
+			continue
+		}
+		seconds, err := strconv.ParseInt(fields[1], 10, 64)
+		if err != nil || seconds <= 0 {
+			return nil
+		}
+		at := time.Unix(seconds, 0).UTC()
+		return &at
+	}
+	return nil
 }

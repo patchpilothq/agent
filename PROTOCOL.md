@@ -56,8 +56,13 @@ The server pings every 30 seconds; a connection that has heard nothing for
 `hello` — first, on every connection.
 
 ```json
-{"type": "hello", "protocol": 1, "agent_version": "0.1.0"}
+{"type": "hello", "protocol": 1, "agent_version": "0.3.0", "booted_at": "2026-10-02T04:14:03Z"}
 ```
+
+- `booted_at` — when the machine started, as RFC 3339 in UTC: the
+  kernel's `btime` in `/proc/stat`. Left out when it cannot be read; sent
+  from 0.3.0 on. A restart of the machine restarts the agent, so a new
+  connection always carries the current one.
 
 `report` — the whole state: after `welcome` when the server holds no state
 of this agent it can build on, and whenever the server asks with

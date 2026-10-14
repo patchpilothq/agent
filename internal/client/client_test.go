@@ -296,3 +296,20 @@ func TestSocketURLFollowsTheServersScheme(t *testing.T) {
 		}
 	}
 }
+
+func TestHelloSaysWhenTheMachineStarted(t *testing.T) {
+	got := make(chan map[string]any, 10)
+	srv := socketServer(t, got, `{"type":"welcome","server_id":"s1"}`, nil)
+	defer srv.Close()
+	var version atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := session(srv, &version)
+	booted := time.Date(2026, 10, 2, 6, 14, 3, 0, time.FixedZone("CEST", 2*3600))
+	s.BootedAt = func() *time.Time { return &booted }
+	go s.Run(ctx)
+
+	if m := receive(t, got); m["type"] != "hello" || m["booted_at"] != "2026-10-02T04:14:03Z" {
+		t.Fatalf("hello %v", m)
+	}
+}
